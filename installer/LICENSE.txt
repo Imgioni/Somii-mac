@@ -1,0 +1,21 @@
+002 by SPKR — licence
+
+Copyright (c) 2026 SPKR. All rights reserved.
+
+002 is free. You may install and use it on as many machines as you like, for
+personal or commercial work, including on music you sell. No registration, no
+account, no time limit.
+
+You may pass the installer on to other people unchanged.
+
+You may not sell it, charge for access to it, present it as your own work, or take
+it apart and ship pieces of it inside another product.
+
+This software is provided "as is", without warranty of any kind, express or
+implied, including but not limited to the warranties of merchantability, fitness
+for a particular purpose and non-infringement. In no event shall the author be
+liable for any claim, damages or other liability arising from, out of or in
+connection with the software or its use.
+
+VST is a trademark of Steinberg Media Technologies GmbH, registered in Europe and
+other countries. 002 is built with JUCE.

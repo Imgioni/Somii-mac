@@ -1,0 +1,49 @@
+name: macOS build
+
+# Builds the macOS VST3, Audio Unit, CLAP and standalone app (universal: Apple Silicon + Intel)
+# and packages them, because the project is developed on Windows where none of that can be built.
+on:
+  push:
+    branches: ["**"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      # third_party/ is not in the repository (JUCE alone is ~165 MB), so fetch the same versions.
+      - name: Fetch JUCE and clap-juce-extensions
+        run: |
+          git clone --depth 1 --branch 8.0.15 https://github.com/juce-framework/JUCE third_party/JUCE
+          git clone --depth 1 --recurse-submodules https://github.com/free-audio/clap-juce-extensions third_party/clap-juce-extensions
+
+      - name: Install Ninja
+        run: brew install ninja
+
+      - name: Build
+        run: bash scripts/build-mac.sh
+
+      - name: DSP and UI tests
+        run: ./build-mac/SGTests_artefacts/Release/SGTests
+
+      # Loads the built VST3 like a DAW and opens its editor: informative here, since a CI runner
+      # has no real audio device or user session.
+      - name: Plugin smoke test
+        continue-on-error: true
+        run: ./build-mac/SGPluginSmoke_artefacts/Release/SGPluginSmoke "build-mac/Geminus_artefacts/Release/VST3/002 by SPKR.vst3"
+
+      # Apple's own Audio Unit validator. The plug-in is copied to ~/Library by the build.
+      - name: auval
+        continue-on-error: true
+        run: auval -v aumu Gmns Spkr
+
+      - name: Package
+        run: bash installer/mac/build_pkg.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 002-by-SPKR-macOS
+          path: dist/*macOS*
+          if-no-files-found: error

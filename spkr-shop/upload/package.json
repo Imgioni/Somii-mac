@@ -1,0 +1,12 @@
+{
+  "name": "spkr-shop",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node gate.test.mjs"
+  },
+  "dependencies": {
+    "@vercel/functions": "^3.9.8"
+  }
+}

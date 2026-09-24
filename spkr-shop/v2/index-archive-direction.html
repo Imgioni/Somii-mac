@@ -1,0 +1,468 @@
+<title>SPKR</title>
+<meta name="description" content="SPKR — an archive of software instruments. File 001: Geminus. Files 002–003: Color Station, The Blue.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=Martian+Mono:wdth,wght@75..112.5,300..600&display=swap">
+<style>
+:root{
+  --ground:#E8E7E2;
+  --sage:rgba(172,194,160,.42); --blue:rgba(166,186,222,.42); --tan:rgba(212,194,162,.42); --teal:rgba(160,198,194,.38);
+  --surface:rgba(255,255,255,.42); --ink:#17171A; --muted:#6B6A70; --line:rgba(23,23,26,.16);
+  --stamp:#2C4AA6; --edge:rgba(40,38,34,.18); --scan:rgba(196,218,255,.6);
+  --copy-filter:none; --copy-opacity:1; --grain:.2; --mark:rgba(23,23,26,.05);
+  --display:"Archivo","Arial Narrow",Impact,sans-serif;
+  --mono:"Martian Mono",ui-monospace,Consolas,monospace;
+  --gutter:clamp(16px,3vw,40px);
+  --ease:cubic-bezier(.2,.7,0,1);
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --ground:#0B0B0C;
+    --sage:rgba(172,204,156,.10); --blue:rgba(150,178,240,.11); --tan:rgba(222,196,150,.08); --teal:rgba(150,206,200,.09);
+    --surface:rgba(255,255,255,.04); --ink:#E6E4DF; --muted:#8C8B90; --line:rgba(230,228,223,.12);
+    --stamp:#93A9F2; --edge:rgba(0,0,0,.7); --scan:rgba(150,180,255,.22);
+    --copy-filter:invert(1); --copy-opacity:.5; --grain:.11; --mark:rgba(255,255,255,.04);
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0B0B0C;
+  --sage:rgba(172,204,156,.10); --blue:rgba(150,178,240,.11); --tan:rgba(222,196,150,.08); --teal:rgba(150,206,200,.09);
+  --surface:rgba(255,255,255,.04); --ink:#E6E4DF; --muted:#8C8B90; --line:rgba(230,228,223,.12);
+  --stamp:#93A9F2; --edge:rgba(0,0,0,.7); --scan:rgba(150,180,255,.22);
+  --copy-filter:invert(1); --copy-opacity:.5; --grain:.11; --mark:rgba(255,255,255,.04);
+  color-scheme:dark;
+}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  background:
+    radial-gradient(50vw 42vw at 92% 4%, var(--teal), transparent 70%),
+    radial-gradient(44vw 38vw at 6% 0%, var(--sage), transparent 70%),
+    radial-gradient(48vw 40vw at 0% 50%, var(--blue), transparent 70%),
+    radial-gradient(40vw 36vw at 98% 58%, var(--tan), transparent 70%),
+    radial-gradient(48vw 40vw at 80% 100%, var(--blue), transparent 70%),
+    radial-gradient(44vw 38vw at 16% 100%, var(--sage), transparent 70%),
+    radial-gradient(28vw 24vw at 44% 96%, var(--teal), transparent 70%)
+    var(--ground);
+  background-attachment:fixed;
+  color:var(--ink);
+  font:400 15px/1.55 var(--display); font-stretch:100%;
+  padding-inline:var(--gutter); overflow-x:hidden; margin:0;
+}
+a{color:inherit; text-decoration:none}
+:focus-visible{outline:1px solid var(--stamp); outline-offset:3px}
+.mono{font-family:var(--mono); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; font-stretch:87.5%}
+.label{font-family:var(--display); font-stretch:125%; font-weight:300; font-size:10.5px; letter-spacing:.32em; text-transform:uppercase}
+.muted{color:var(--muted)}
+
+/* ---------- paper: grain + photocopy (background only) ---------- */
+.grain,header::before{position:fixed; inset:-50%; z-index:0; pointer-events:none; opacity:var(--grain);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 1.6 -.3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  animation:grain .9s steps(6) infinite}
+header::before{content:""; position:absolute; inset:-50%; z-index:-1}
+@keyframes grain{
+  0%{transform:translate(0,0)} 20%{transform:translate(-3%,2%)} 40%{transform:translate(2%,-4%)}
+  60%{transform:translate(-4%,-1%)} 80%{transform:translate(3%,3%)} 100%{transform:translate(0,0)}
+}
+/* toner specks, uneven toner, copier streaks, lid-edge shadow */
+.copy{position:fixed; inset:0; z-index:0; pointer-events:none; filter:var(--copy-filter); opacity:var(--copy-opacity);
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cfilter id='s' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='1' seed='7' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 40 0 0 0 -31.2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23s)'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='900'%3E%3Cfilter id='m' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.006' numOctaves='3' seed='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -.45 0 0 0 .25'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23m)'/%3E%3C/svg%3E"),
+    repeating-linear-gradient(90deg, transparent 0 211px, rgba(0,0,0,.035) 211px 212px, transparent 212px 587px, rgba(0,0,0,.05) 587px 588.5px, transparent 588.5px 766px, rgba(0,0,0,.025) 766px 769px, transparent 769px 1013px),
+    linear-gradient(180deg, rgba(0,0,0,.07), transparent 5%, transparent 93%, rgba(0,0,0,.08));
+}
+body::before{content:""; position:fixed; inset:0; z-index:0; pointer-events:none;
+  background:radial-gradient(120% 90% at 50% 45%, transparent 55%, var(--edge))}
+/* copier light bar, once on load */
+.scan{position:fixed; inset:0; z-index:60; pointer-events:none; overflow:hidden}
+.scan::before{content:""; position:absolute; left:0; right:0; height:34vh; top:-34vh;
+  background:linear-gradient(180deg, transparent, var(--scan) 46%, rgba(255,255,255,.85) 50%, var(--scan) 54%, transparent);
+  animation:scan 1.7s cubic-bezier(.5,0,.5,1) .15s forwards}
+@keyframes scan{to{transform:translateY(140vh); opacity:.2}}
+main,footer{position:relative; z-index:1}
+
+/* ---------- header ---------- */
+header{position:sticky; top:env(safe-area-inset-top,0px); z-index:40;
+  display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:16px;
+  padding-block:18px; background:inherit; background-attachment:fixed; isolation:isolate; overflow:hidden}
+.wordmark{display:flex; align-items:baseline; gap:10px}
+.wordmark b{font-weight:900; font-stretch:62%; font-size:22px; letter-spacing:.02em; line-height:1}
+header nav{display:flex; gap:clamp(14px,3vw,36px)}
+header nav a{position:relative}
+header nav a::after{content:""; position:absolute; left:0; right:0; bottom:-4px; height:1px; background:currentColor; transform:scaleX(0); transform-origin:left; transition:transform .4s var(--ease)}
+header nav a:hover::after{transform:scaleX(1)}
+.head-right{display:flex; justify-content:flex-end; gap:18px; align-items:center}
+.theme-btn{background:none; border:0; color:inherit; cursor:pointer; padding:0; font:inherit}
+
+/* ---------- stamp ---------- */
+.stamp{display:inline-block; border:1.5px solid var(--stamp); color:var(--stamp); padding:5px 9px 4px; font-family:var(--mono); font-size:10px; letter-spacing:.2em; text-transform:uppercase; font-weight:600;
+  transform:rotate(-5deg); opacity:.85; animation:stamp .45s var(--ease) 1.5s both}
+@keyframes stamp{from{transform:rotate(-12deg) scale(1.9); opacity:0}60%{opacity:.95}to{transform:rotate(-5deg) scale(1); opacity:.85}}
+
+/* ---------- hero ---------- */
+.hero{position:relative; padding-block:clamp(24px,5vw,60px) 0}
+.hero-meta{display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap; border-top:1px solid var(--line); padding-top:12px}
+.hero-grid{display:grid; grid-template-columns:minmax(0,1.7fr) minmax(0,1fr); gap:var(--gutter); align-items:end; margin-top:clamp(16px,3vw,40px)}
+.monument{
+  font-weight:900; font-stretch:62%; line-height:.74; letter-spacing:-.035em;
+  font-size:clamp(120px,30vw,470px); margin:0 0 0 -.03em;
+  animation:settle 1.4s var(--ease) both;
+}
+@keyframes settle{from{letter-spacing:.12em; font-stretch:125%; opacity:0}to{letter-spacing:-.035em; font-stretch:62%; opacity:1}}
+.exhibit{position:relative; margin:0; justify-self:end; width:100%; max-width:520px}
+.exhibit .print{background:var(--surface); padding:10px; border:1px solid var(--line); transform:rotate(1.2deg); transition:transform .8s var(--ease)}
+.exhibit:hover .print{transform:rotate(0)}
+.exhibit img{display:block; width:100%; height:auto; aspect-ratio:4/3; object-fit:cover; object-position:40% 30%;
+  filter:grayscale(1) contrast(1.15); transition:filter 1s var(--ease); animation:develop 2.2s ease-out .4s both}
+.exhibit:hover img{filter:grayscale(0) contrast(1)}
+@keyframes develop{from{filter:grayscale(1) contrast(.4) brightness(2.2)}to{filter:grayscale(1) contrast(1.15) brightness(1)}}
+.exhibit figcaption{display:flex; justify-content:space-between; gap:12px; padding-top:12px}
+.exhibit .stamp{position:absolute; top:-14px; left:-18px; z-index:2}
+.corner{position:absolute; width:14px; height:14px; border:0 solid var(--ink); opacity:.5}
+.corner.tl{top:-22px; left:-10px; border-top-width:1px; border-left-width:1px}
+.corner.br{bottom:26px; right:-10px; border-bottom-width:1px; border-right-width:1px}
+
+.quote{display:grid; grid-template-columns:minmax(0,1fr) auto; gap:var(--gutter); align-items:end; padding-block:clamp(48px,9vw,130px)}
+.quote blockquote{margin:0; font-weight:200; font-stretch:125%; text-transform:uppercase; font-size:clamp(34px,6.4vw,104px); line-height:.95; letter-spacing:-.025em; text-wrap:balance}
+.quote cite{font-style:normal; text-align:right}
+
+/* ticker */
+.ticker{border-block:1px solid var(--line); overflow:hidden; white-space:nowrap; padding-block:9px; margin-bottom:clamp(40px,6vw,80px)}
+.ticker div{display:inline-flex; gap:48px; padding-right:48px; animation:tick 38s linear infinite}
+@keyframes tick{to{transform:translateX(-50%)}}
+
+/* ---------- sections ---------- */
+section{border-top:1px solid var(--ink); padding-block:14px clamp(60px,10vw,140px); scroll-margin-top:64px}
+.sec-head{display:flex; justify-content:space-between; gap:16px; margin-bottom:clamp(28px,5vw,64px)}
+.sec-head h2{font:inherit; margin:0}
+
+/* register */
+.index-wrap{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,3fr); gap:var(--gutter)}
+.index-note{display:flex; flex-direction:column; gap:6px; align-self:start; position:sticky; top:90px}
+.cols,.row{display:grid; grid-template-columns:3.2em minmax(0,1fr) 9em 7.5em 1.5em; align-items:center; gap:clamp(12px,2vw,28px)}
+.cols{padding-bottom:10px; border-bottom:1px solid var(--line)}
+.index{list-style:none; margin:0; padding:0}
+.row{position:relative; padding-block:clamp(14px,2vw,22px); border-bottom:1px solid var(--line); cursor:default}
+a.row{cursor:pointer}
+.row-name{font-family:var(--display); font-weight:300; font-stretch:125%; font-size:clamp(24px,3.8vw,54px); line-height:1; letter-spacing:.01em; text-transform:uppercase; white-space:nowrap; overflow:hidden; text-overflow:clip;
+  transition:font-stretch .6s var(--ease), font-weight .6s, letter-spacing .6s}
+.row:hover .row-name, .row:focus-visible .row-name{font-stretch:62%; font-weight:800; letter-spacing:-.01em}
+.row .arrow{transition:transform .4s var(--ease)}
+a.row:hover .arrow{transform:translateX(6px)}
+.redact{position:relative; display:inline-block}
+.redact::after{content:""; position:absolute; inset:.04em -.08em; background:var(--ink); transform-origin:right; transition:transform .7s var(--ease)}
+.row:hover .redact::after, .row:focus-visible .redact::after{transform:scaleX(0)}
+.class-open{color:var(--stamp)}
+.peek{position:absolute; right:30%; top:50%; width:clamp(150px,16vw,240px); aspect-ratio:4/3; overflow:hidden; pointer-events:none;
+  opacity:0; transform:translate(0,-40%) rotate(-2deg); transition:opacity .35s, transform .6s var(--ease); z-index:3;
+  display:grid; place-items:center; border:1px solid var(--line)}
+.peek img{width:100%; height:100%; object-fit:cover; object-position:44% 30%; filter:grayscale(1) contrast(1.1)}
+.row:hover .peek, .row:focus-visible .peek{opacity:1; transform:translate(0,-50%) rotate(0)}
+.peek.sealed{background:radial-gradient(90% 80% at 30% 30%, var(--teal), transparent), var(--ground)}
+.peek.sealed.b{background:radial-gradient(90% 80% at 70% 60%, var(--blue), transparent), var(--ground)}
+
+/* file 001 */
+.back{display:inline-flex; gap:10px; margin-bottom:clamp(20px,3vw,36px)}
+.back:hover{color:var(--muted)}
+.object{display:grid; grid-template-columns:minmax(0,1.35fr) minmax(0,1fr); gap:clamp(24px,5vw,80px); align-items:start}
+.title-row{display:flex; align-items:flex-start; gap:16px; flex-wrap:wrap; margin-bottom:20px}
+.object h2{margin:0; font-weight:900; font-stretch:62%; font-size:clamp(72px,11vw,168px); line-height:.8; letter-spacing:-.03em}
+.object .lede{font-size:17px; line-height:1.5; max-width:40ch; margin:0 0 36px; font-stretch:95%}
+.crops{display:grid; grid-template-columns:2fr 1fr; gap:clamp(8px,1vw,14px)}
+.crop{background:var(--surface); overflow:hidden; aspect-ratio:1/1; max-width:100%}
+.crop.wide{grid-column:1/-1; aspect-ratio:2.6/1}
+.crop img{width:100%; height:100%; object-fit:cover; display:block; filter:grayscale(.85); transition:filter .8s var(--ease)}
+.crop:hover img{filter:none}
+.crop.c2 img{object-position:88% 100%}
+.crop.c3 img{object-position:48% 40%}
+.specs{margin:0; border-top:1px solid var(--line)}
+.specs div{display:grid; grid-template-columns:9em 1fr; gap:12px; padding-block:9px; border-bottom:1px solid var(--line)}
+.specs dt{color:var(--muted)} .specs dd{margin:0}
+#geminus:not([hidden]) .crop, #geminus:not([hidden]) .specs div{animation:filein .6s var(--ease) both; animation-delay:calc(var(--i,0) * 55ms)}
+@keyframes filein{from{opacity:0; transform:translateY(6px)}}
+.buy{display:flex; align-items:stretch; margin-top:28px; border:1px solid var(--ink)}
+.buy .price{flex:1; padding:16px 18px; display:flex; flex-direction:column; gap:4px}
+.cta{position:relative; overflow:hidden; display:flex; align-items:center; gap:14px; padding:0 22px; background:var(--ink); color:var(--ground);
+  font-family:var(--mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase; font-weight:500; transition:letter-spacing .4s var(--ease)}
+.cta::before{content:""; position:absolute; inset:0; background:var(--stamp); transform:scaleX(0); transform-origin:left; transition:transform .5s var(--ease); z-index:-1}
+.cta{isolation:isolate}
+.cta:hover{letter-spacing:.2em}
+.cta:hover::before{transform:scaleX(1)}
+.object-sound{margin-top:clamp(48px,7vw,96px); display:grid; grid-template-columns:minmax(0,1fr) minmax(0,3fr); gap:var(--gutter)}
+
+/* recordings */
+.sound{display:grid; grid-template-columns:1fr 1fr; gap:var(--gutter); align-items:end}
+.sound h2{margin:0; font-weight:200; font-stretch:125%; font-size:clamp(34px,6vw,92px); line-height:.95; letter-spacing:-.02em; text-transform:uppercase}
+.tracks{list-style:none; margin:0; padding:0; border-top:1px solid var(--line)}
+.tracks li{display:grid; grid-template-columns:6.8em 8.5em 1fr auto; gap:12px; padding-block:12px; border-bottom:1px solid var(--line); align-items:center}
+.wave{height:14px; background:repeating-linear-gradient(90deg,var(--muted) 0 1px,transparent 1px 4px); opacity:.35;
+  -webkit-mask:linear-gradient(90deg,transparent,#000 10%,#000 70%,transparent); mask:linear-gradient(90deg,transparent,#000 10%,#000 70%,transparent);
+  animation:hiss 2.4s ease-in-out infinite alternate}
+.tracks li:nth-child(2) .wave{animation-delay:-.8s}
+.tracks li:nth-child(3) .wave{animation-delay:-1.6s}
+@keyframes hiss{from{opacity:.15; transform:scaleY(.5)}to{opacity:.4; transform:scaleY(1)}}
+
+/* access */
+.list{display:grid; grid-template-columns:1fr 1fr; gap:var(--gutter)}
+.list h2{margin:0; font-weight:900; font-stretch:62%; font-size:clamp(56px,8vw,120px); line-height:.82; letter-spacing:-.02em; text-transform:uppercase}
+form{display:flex; flex-direction:column; gap:14px; align-self:end}
+.field{display:flex; border-bottom:1px solid var(--ink)}
+.field input{flex:1; min-width:0; background:none; border:0; color:var(--ink); padding:14px 0; font:500 18px var(--display); font-stretch:100%}
+.field input::placeholder{color:var(--muted)}
+.field input:focus{outline:none}
+.field:focus-within{border-color:var(--stamp)}
+.field button{background:none; border:0; color:var(--ink); cursor:pointer; padding:0 0 0 16px}
+.field button:hover{color:var(--stamp)}
+
+/* footer */
+footer{border-top:1px solid var(--ink); padding-block:14px 28px; overflow:hidden}
+.foot-row{display:flex; justify-content:space-between; flex-wrap:wrap; gap:16px}
+.foot-row nav{display:flex; gap:18px; flex-wrap:wrap}
+.foot-mark{font-weight:900; font-stretch:62%; font-size:clamp(90px,26vw,380px); line-height:.74; letter-spacing:-.03em; margin:36px 0 0 -.03em; color:var(--mark); white-space:nowrap}
+
+/* responsive */
+@media (max-width:900px){
+  .index-wrap,.object-sound,.object,.sound,.list{grid-template-columns:1fr}
+  .index-note{position:static}
+  .cols .c-type,.row .c-type{display:none}
+  .cols,.row{grid-template-columns:3em minmax(0,1fr) 7em 1.5em}
+  .peek{display:none}
+  .tracks li{grid-template-columns:4em 1fr auto}
+  .tracks .wave{display:none}
+}
+@media (max-width:640px){
+  header{grid-template-columns:auto 1fr}
+  header nav{display:none}
+  .hero-grid{grid-template-columns:1fr}
+  .monument{font-size:44vw}
+  .exhibit{max-width:78%}
+  .quote{grid-template-columns:1fr}
+  .quote cite{text-align:left}
+  .cols,.row{grid-template-columns:2.6em minmax(0,1fr) 1.5em}
+  .cols .c-class,.row .c-class{display:none}
+  .specs div{grid-template-columns:7.5em 1fr}
+  .buy{flex-direction:column}
+  .cta{padding:16px 18px; justify-content:space-between}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important; transition:none!important}
+  .scan{display:none}
+  html{scroll-behavior:auto}
+}
+</style>
+
+<div class="grain" aria-hidden="true"></div>
+<div class="copy" aria-hidden="true"></div>
+<div class="scan" aria-hidden="true"></div>
+
+<header>
+  <a class="wordmark" href="#top" aria-label="SPKR archive home"><b>SPKR</b><span class="mono muted">Archive</span></a>
+  <nav class="label" aria-label="Main">
+    <a href="#index">Register</a>
+    <a href="#sound">Recordings</a>
+    <a href="#list">Access</a>
+  </nav>
+  <div class="head-right mono">
+    <button class="theme-btn mono" id="theme" type="button" aria-label="Toggle light and dark">Light / Dark</button>
+    <a href="#geminus">Bag (0)</a>
+  </div>
+</header>
+
+<main id="top">
+  <div class="hero">
+    <div class="hero-meta mono">
+      <span>SPKR.SHOP</span>
+      <span class="muted">File ref. SPKR / 001—003</span>
+      <span>Copy 01 of 01</span>
+    </div>
+    <div class="hero-grid">
+      <h1 class="monument" aria-label="SPKR">SPKR</h1>
+      <figure class="exhibit">
+        <span class="corner tl" aria-hidden="true"></span>
+        <span class="stamp">Archive copy</span>
+        <div class="print"><img src="assets/geminus.jpg" alt="Exhibit A: the Geminus synthesizer interface" width="2000" height="780"></div>
+        <figcaption class="mono"><span>Exhibit A</span><span class="muted">001 / Geminus</span></figcaption>
+        <span class="corner br" aria-hidden="true"></span>
+      </figure>
+    </div>
+    <div class="quote">
+      <blockquote id="quote" aria-label="A sound that’s real.">“A sound that’s real.”</blockquote>
+      <cite class="mono muted">— SPKR<br>File note, 2026</cite>
+    </div>
+  </div>
+
+  <div class="ticker mono" aria-hidden="true">
+    <div>
+      <span>File 001 — Geminus — Declassified</span><span class="muted">///</span>
+      <span>File 002 — Color Station — Restricted</span><span class="muted">///</span>
+      <span>File 003 — The Blue — Restricted</span><span class="muted">///</span>
+      <span>File 001 — Geminus — Declassified</span><span class="muted">///</span>
+      <span>File 002 — Color Station — Restricted</span><span class="muted">///</span>
+      <span>File 003 — The Blue — Restricted</span><span class="muted">///</span>
+    </div>
+  </div>
+
+  <section id="index" aria-labelledby="index-h">
+    <div class="sec-head mono"><h2 id="index-h">Register</h2><span class="muted">3 files</span></div>
+    <div class="index-wrap">
+      <div class="index-note mono muted">
+        <span>SPKR / Instruments</span>
+        <span>Hover to inspect.</span>
+        <span>Open a declassified file.</span>
+      </div>
+      <div>
+        <div class="cols mono muted" aria-hidden="true"><span>Ref</span><span>Title</span><span class="c-type">Type</span><span class="c-class">Class</span><span></span></div>
+        <ul class="index mono">
+          <li><a class="row" href="#geminus">
+            <span>001</span>
+            <span class="row-name">Geminus</span>
+            <span class="c-type muted">Dual-layer synth</span>
+            <span class="c-class class-open">Declassified</span>
+            <span class="arrow" aria-hidden="true">→</span>
+            <span class="peek" aria-hidden="true"><img src="assets/geminus.jpg" alt="" loading="lazy"></span>
+          </a></li>
+          <li class="row" tabindex="0" aria-label="002, Color Station, restricted">
+            <span>002</span>
+            <span class="row-name"><span class="redact">Color Station</span></span>
+            <span class="c-type muted">Classified</span>
+            <span class="c-class muted">Restricted</span>
+            <span class="muted" aria-hidden="true">—</span>
+            <span class="peek sealed mono" aria-hidden="true">File sealed</span>
+          </li>
+          <li class="row" tabindex="0" aria-label="003, The Blue, restricted">
+            <span>003</span>
+            <span class="row-name"><span class="redact">The Blue</span></span>
+            <span class="c-type muted">Classified</span>
+            <span class="c-class muted">Restricted</span>
+            <span class="muted" aria-hidden="true">—</span>
+            <span class="peek sealed b mono" aria-hidden="true">File sealed</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="geminus" aria-labelledby="geminus-h" hidden>
+    <div class="sec-head mono"><span>File 001</span><span class="muted">SPKR / Instruments</span></div>
+    <a class="back mono" href="#index"><span aria-hidden="true">←</span> Register</a>
+    <div class="object">
+      <div class="crops">
+        <div class="crop wide c3" style="--i:0"><img src="assets/geminus.jpg" alt="Geminus upper and lower oscillator sections" loading="lazy"></div>
+        <div class="crop c2" style="--i:1"><img src="assets/geminus.jpg" alt="Geminus ribbon controller and keyboard" loading="lazy"></div>
+        <div class="crop" style="--i:2"><img src="assets/geminus.jpg" alt="Geminus master and LFO controls" loading="lazy" style="object-position:0 0"></div>
+      </div>
+      <div>
+        <div class="title-row"><h2 id="geminus-h">GEMINUS</h2><span class="stamp">Declassified</span></div>
+        <p class="lede">Two complete synthesizers stacked into one surface. Split them, layer them, pan them apart — then let the ribbon and the sequencer move things somewhere you didn’t plan.</p>
+        <dl class="specs mono">
+          <div style="--i:1"><dt>Voices</dt><dd>20, polyphonic</dd></div>
+          <div style="--i:2"><dt>Layers</dt><dd>Upper + Lower — single / dual / split</dd></div>
+          <div style="--i:3"><dt>Engine</dt><dd>Analog-hybrid, binaural</dd></div>
+          <div style="--i:4"><dt>Oscillators</dt><dd>2 DDS per layer + alt waves</dd></div>
+          <div style="--i:5"><dt>Modulation</dt><dd>2 LFO, 2 env, mod matrix</dd></div>
+          <div style="--i:6"><dt>Performance</dt><dd>Ribbon, arp / sequencer</dd></div>
+          <div style="--i:7"><dt>Effects</dt><dd>Chorus I / II, delay + freeze</dd></div>
+          <div style="--i:8"><dt>Format</dt><dd>VST3 — Windows</dd></div>
+        </dl>
+        <div class="buy">
+          <div class="price"><span class="mono muted">Price</span><span class="mono">TBA</span></div>
+          <a class="cta" href="#list">Request access <span aria-hidden="true">→</span></a>
+        </div>
+      </div>
+    </div>
+    <div class="object-sound">
+      <div class="mono"><span>File 001 / Recordings</span></div>
+      <ul class="tracks mono" aria-label="Geminus recordings">
+        <li><span class="muted">REC 001-A</span><span>Geminus</span><span class="wave" aria-hidden="true"></span><span>Forthcoming</span></li>
+        <li><span class="muted">REC 001-B</span><span>Geminus</span><span class="wave" aria-hidden="true"></span><span>Forthcoming</span></li>
+        <li><span class="muted">REC 001-C</span><span>Geminus</span><span class="wave" aria-hidden="true"></span><span>Forthcoming</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="sound" aria-labelledby="sound-h">
+    <div class="sec-head mono"><span>Recordings</span><span class="muted">One from each file</span></div>
+    <div class="sound">
+      <h2 id="sound-h">Heard<br>before<br>seen.</h2>
+      <ul class="tracks mono">
+        <li><span class="muted">REC 001-A</span><span>Geminus</span><span class="wave" aria-hidden="true"></span><span>Forthcoming</span></li>
+        <li><span class="muted">REC 002-A</span><span>Color Station</span><span class="wave" aria-hidden="true"></span><span>Sealed</span></li>
+        <li><span class="muted">REC 003-A</span><span>The Blue</span><span class="wave" aria-hidden="true"></span><span>Sealed</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="list" aria-labelledby="list-h">
+    <div class="sec-head mono"><span>Access</span><span class="muted">One letter per release</span></div>
+    <div class="list">
+      <h2 id="list-h">Request<br>access.</h2>
+      <form id="signup" novalidate>
+        <label class="label" for="email">Email</label>
+        <div class="field">
+          <input id="email" name="email" type="email" placeholder="you@studio.com" autocomplete="email" required>
+          <button class="mono" type="submit">Submit →</button>
+        </div>
+        <p class="mono muted" id="signup-msg" role="status" aria-live="polite">You’ll hear when a file is opened. Nothing else.</p>
+      </form>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="foot-row mono">
+    <span>© 2026 SPKR — End of file</span>
+    <nav aria-label="Footer">
+      <a href="#list">Support</a><a href="#list">Refund policy</a><a href="#top">IG</a><a href="#top">YT</a><a href="#top">SC</a>
+    </nav>
+  </div>
+  <div class="foot-mark" aria-hidden="true">SPKR.SHOP</div>
+</footer>
+
+<script>
+(() => {
+  const root = document.documentElement;
+  const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  document.getElementById('theme').addEventListener('click', () => {
+    const dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    root.dataset.theme = dark ? 'light' : 'dark';
+  });
+
+  // Quote decodes like a recovered document.
+  const q = document.getElementById('quote'), text = q.textContent, glyphs = '▮░▒/\\#01';
+  if (!still) {
+    let f = 0;
+    const t = setInterval(() => {
+      const done = Math.floor(f / 2);
+      q.textContent = [...text].map((c, i) => i < done || c === ' ' ? c : glyphs[(Math.random() * glyphs.length) | 0]).join('');
+      if (++f > text.length * 2) { clearInterval(t); q.textContent = text; }
+    }, 28);
+  }
+
+  // Opening a file (#geminus) swaps the register + mixed recordings for that file.
+  const detail = document.getElementById('geminus');
+  const general = [document.getElementById('index'), document.getElementById('sound')];
+  const route = () => {
+    const open = location.hash === '#geminus';
+    detail.hidden = !open;
+    general.forEach(el => el.hidden = open);
+    const target = open ? detail : (location.hash.length > 1 && document.querySelector(location.hash));
+    if (target) target.scrollIntoView();
+  };
+  addEventListener('hashchange', route);
+  route();
+
+  const form = document.getElementById('signup'), msg = document.getElementById('signup-msg'), email = document.getElementById('email');
+  form.addEventListener('submit', e => {
+    e.preventDefault();
+    // ponytail: demo only, no backend — wire to your mail provider (Mailchimp, Buttondown…) at deploy
+    if (!email.checkValidity()) { msg.textContent = 'Enter a full email address, like you@studio.com.'; email.focus(); return; }
+    msg.textContent = 'Request logged. We’ll write when a file is opened.';
+    form.reset();
+  });
+})();
+</script>

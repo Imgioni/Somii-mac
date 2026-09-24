@@ -1,0 +1,21 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "geminus-ui",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "ui/server.mjs"
+      ],
+      "port": 5178
+    },
+    {
+      "name": "spkr-shop",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "spkr-shop/v2/server.mjs"
+      ],
+      "port": 5190
+    }
+  ]
+}

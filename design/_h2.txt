@@ -1,0 +1,315 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import {
+  A, INK, INK2, ORANGE, txt, txtInv, vrule, hrule, blackPanel,
+  knob, rotary, fader, sw3, button, led, sect
+} from './lib.mjs';
+
+const OUT = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+
+const W = 2240, H = 945;
+const PL = 34, PR = 2206;              // panel inner left/right (inside the cheeks)
+
+// one control centre-line and one label baseline per layer row, so knobs,
+// faders and switches all sit on the same axis instead of floating
+const CY = 88;                          // control centre, relative to row top
+const LBL = 154;                        // label baseline
+const SUB = 165;                        // inverse secondary-label baseline
+const FH = 112;                         // fader travel
+const SWD = 16;                         // fader slot width
+const KD = 40;                          // standard knob
+const SWH = 40;                         // three-position switch height
+
+const kpad = (d) => Math.max(6, d * 0.18);
+// visual footprints, used to centre each section's cluster
+const wFader = SWD + 8;
+const wKnob = (d) => d + 2 * kpad(d);
+const wRotary = (d, lw) => d + 2 * (kpad(d) + 7 + (lw == null ? 18 : lw));
+const wSw3 = (h) => h * 0.458 + 3 + 34;
+
+// lay a row of items out centred inside a section
+function pack(sec, items, gap) {
+  const total = items.reduce((a, i) => a + i.w, 0) + gap * (items.length - 1);
+  let cx = sec.x + (sec.w - total) / 2;
+  let out = '';
+  for (const it of items) { out += it.r(cx); cx += it.w + gap; }
+  return out;
+}
+
+// ---------------------------------------------------------------- layer row
+// x-map shared by both rows so UPPER and LOWER line up exactly, as on the hardware
+const S = {
+  lfo:  { x: 146,  w: 300 },
+  mod:  { x: 456,  w: 320 },
+  osc:  { x: 786,  w: 400 },
+  mix:  { x: 1196, w: 76 },
+  vcf:  { x: 1282, w: 270 },
+  vca:  { x: 1562, w: 175 },
+  env:  { x: 1747, w: 366 },
+  dly:  { x: 2123, w: 84 }
+};
+// labels inside the black inset sub-panels
+const ONBLACK = { lc: '#A8A6A1', tick: '#8A8884', labelColor: '#D8D6D0' };
+
+function layerRow(y, upper) {
+  let o = '';
+  const ly = y + LBL, sy = y + SUB, cy = y + CY;
+  const fy = cy - FH / 2;                      // fader top
+  const ky = (d) => cy - d / 2;                // knob/switch top for a given size
+
+  const F = (val, label, cap, sub) => ({
+    w: wFader,
+    r: (x) => fader({ x: x + 4, y: fy, h: FH, sw: SWD, cap: cap || 'grey', val: val, label: label, sub: sub, ly: ly, sy: sy })
+  });
+  const K = (d, v, val, label, sub, ticks) => ({
+    w: wKnob(d),
+    r: (x) => knob({ x: x + kpad(d), y: ky(d), d: d, v: v, val: val, ticks: ticks == null ? 11 : ticks, label: label, sub: sub, ly: ly, sy: sy })
+  });
+  const R = (d, sel, steps, label, lw, ss) => ({
+    w: wRotary(d, lw),
+    r: (x) => rotary({ x: x + (wRotary(d, lw) - d) / 2, y: ky(d), d: d, sel: sel, steps: steps, label: label, ly: ly, ssize: ss || 6.0 })
+  });
+  const SW = (pos, opts, label) => ({
+    w: wSw3(SWH),
+    r: (x) => sw3({ x: x, y: ky(SWH), h: SWH, pos: pos, opts: opts, label: label, ly: ly })
+  });
+  // two switches stacked in one column
+  const SWCOL = (a, b) => ({
+    w: wSw3(34),
+    r: (x) => sw3({ x: x, y: cy - 40, h: 34, pos: a.pos, opts: a.opts, label: a.label, ly: cy - 4 })
+           + sw3({ x: x, y: cy + 12, h: 34, pos: b.pos, opts: b.opts, label: b.label, ly: ly })
+  });
+  const GAP = (w) => ({ w: w, r: () => '' });
+
+  // -- left column: master volume (upper) / detune (lower)
+  if (upper) {
+    o += knob({ x: 62, y: ky(54), d: 54, v: 'cream', val: 0.72, ticks: 11, label: 'MASTER VOLUME', lsize: 8.5, ly: ly });
+  } else {
+    o += knob({ x: 66, y: ky(46), d: 46, v: 'orange', val: 0.5, ticks: 11, label: 'DETUNE', lsize: 8.5, ly: ly, sub: 'PERF DETUNE', sy: sy });
+  }
+  o += txt(38, y + 4, 96, upper ? 'UPPER' : 'LOWER', { size: 12, align: 'left', ls: 0.14 });
+  o += led(100, y + 5, upper, 8);
+
+  // -- LFO 1
+  let g = S.lfo;
+  o += sect(g.x, y + 2, g.w, 'LFO 1');
+  o += pack(g, [
+    F(0.55, 'RATE'), F(0.12, 'DELAY'), F(0.40, 'LR PHASE', 'orange', 'SPREAD'),
+    GAP(4),
+    R(34, 0, ['FREE', 'ONCE', 'RESET'], 'MODE', 17),
+    R(34, 1, ['TRI', 'SAW', 'S&H', 'SQR', 'HF', 'TRK'], 'WAVE', 14)
+  ], 7);
+
+  // -- DDS MODULATOR
+  g = S.mod;
+  o += sect(g.x, y + 2, g.w, 'DDS MODULATOR');
+  o += pack(g, [
+    SW(2, ['ON', '1/2', 'OFF'], 'SUPER'),
+    GAP(2),
+    F(0.30, 'DETUNE', 'grey', 'DRIFT'), F(0.00, 'PW', 'dark'), F(0.45, 'PWM / WAVE', 'orange'),
+    GAP(4),
+    F(0.18, 'LFO 1'), F(0.00, 'ENV 1'),
+    GAP(4),
+    F(0.10, 'CROSS MOD', 'orange', 'RING'),
+    GAP(2),
+    SWCOL({ pos: 1, opts: ['DDS 2', '1+2', 'DDS 1'], label: 'DEST' },
+          { pos: 2, opts: ['MAN', 'LFO 1', 'ENV 1'], label: 'SRC' })
+  ], 6);
+
+  // -- OSCILLATORS (two black inset sub-panels)
+  g = S.osc;
+  o += sect(g.x, y + 2, g.w, 'OSCILLATORS');
+  const IW = (g.w - 10) / 2, bt = y + 24, bh = 148, b2 = g.x + IW + 10;
+  o += blackPanel(g.x, bt, IW, bh);
+  o += blackPanel(b2, bt, IW, bh);
+  o += txt(g.x + 8, bt + 6, 60, 'DDS 1', { size: 9, align: 'left', color: '#D8D6D0' });
+  o += txt(b2 + 8, bt + 6, 60, 'DDS 2', { size: 9, align: 'left', color: '#D8D6D0' });
+  const rd = 32, rcy = bt + 60, rly = bt + 96;
+  const RB = (sel, steps, label) => ({
+    w: wRotary(rd, 15),
+    r: (x) => rotary(Object.assign({
+      x: x + (wRotary(rd, 15) - rd) / 2, y: rcy - rd / 2, d: rd, sel: sel, steps: steps,
+      label: label, ly: rly, lsize: 7.4, ssize: 5.6
+    }, ONBLACK))
+  });
+  o += pack({ x: g.x, w: IW }, [RB(1, ['SIN', 'SAW', 'SQR', 'TRI', 'NSE', 'ALT'], 'WAVEFORM'),
+                                RB(3, ["64'", "32'", "16'", "8'", "4'", "2'"], 'RANGE')], 4);
+  o += pack({ x: b2, w: IW }, [RB(2, ['SIN', 'SAW', 'SQR', 'TRI', 'NSE', 'PLS'], 'WAVEFORM'),
+                               RB(3, ['LFO', "32'", "16'", "8'", "4'", "2'"], 'RANGE')], 4);
+  // lower shelf inside each inset
+  const shy = bt + 112, shly = bt + 136;
+  o += pack({ x: g.x, w: IW }, [
+    { w: 34, r: (x) => button({ x: x + 4, y: shy, w: 26, on: true, led: false, label: 'ALT A', dark: true, lsize: 6.8, ly: shly }) },
+    { w: 34, r: (x) => button({ x: x + 4, y: shy, w: 26, on: false, led: false, label: 'ALT B', dark: true, lsize: 6.8, ly: shly }) }
+  ], 16);
+  o += pack({ x: b2, w: IW }, [
+    { w: wKnob(24), r: (x) => knob({ x: x + kpad(24), y: shy - 1, d: 24, v: 'cream', val: 0.5, ticks: 9, tick: '#8A8884', label: 'TUNE', lsize: 7, ly: shly, labelColor: '#B9B7B1' }) },
+    { w: wSw3(26), r: (x) => sw3(Object.assign({ x: x, y: shy - 1, h: 26, pos: 0, opts: ['SYNC', 'RING', 'NORM'], label: 'MODE', lsize: 7, ly: shly, ssize: 5.6 }, ONBLACK)) },
+    { w: wSw3(26), r: (x) => sw3(Object.assign({ x: x, y: shy - 1, h: 26, pos: 1, opts: ['SIN', 'SQR', 'OFF'], label: 'SUB', lsize: 7, ly: shly, ssize: 5.6 }, ONBLACK)) }
+  ], 4);
+
+  // -- MIXER
+  g = S.mix;
+  o += sect(g.x, y + 2, g.w, 'MIXER');
+  o += pack(g, [K(44, 'orange', 0.5, 'MIX', 'PAN')], 0);
+  o += txt(g.x - 4, cy + 30, 34, 'DDS 1', { size: 6.6, color: INK2, weight: 600 });
+  o += txt(g.x + 46, cy + 30, 34, 'DDS 2', { size: 6.6, color: INK2, weight: 600 });
+
+  // -- VCF
+  g = S.vcf;
+  o += sect(g.x, y + 2, g.w, 'VCF');
+  o += pack(g, [
+    SWCOL({ pos: 1, opts: ['2', '1', 'OFF'], label: 'DRIVE' },
+          { pos: 2, opts: ['ON', '1/2', 'OFF'], label: 'KEYTRK' }),
+    GAP(2),
+    F(0.00, 'HPF'), F(0.62, 'LPF', 'orange'), F(0.34, 'RES', 'orange'),
+    GAP(4),
+    F(0.48, 'ENV'), F(0.14, 'LFO 1'), F(0.00, 'DDS 2', 'dark')
+  ], 6);
+
+  // -- VCA
+  g = S.vca;
+  o += sect(g.x, y + 2, g.w, 'VCA');
+  o += pack(g, [
+    SWCOL({ pos: 2, opts: ['ON', '1/2', 'OFF'], label: 'DYNAM' },
+          { pos: 0, opts: ['ENV 2', '1+2', 'ENV 1'], label: 'ENV' }),
+    GAP(2),
+    F(0.78, 'ENV LEVEL', 'orange'), F(0.08, 'LFO 1'), F(0.00, 'AT')
+  ], 6);
+
+  // -- ENVELOPES (two black inset sub-panels)
+  g = S.env;
+  o += sect(g.x, y + 2, g.w, 'ENVELOPES');
+  const EW = (g.w - 10) / 2, ebt = y + 24, ebh = 148, e2 = g.x + EW + 10;
+  o += blackPanel(g.x, ebt, EW, ebh);
+  o += blackPanel(e2, ebt, EW, ebh);
+  o += txt(g.x + 8, ebt + 6, 40, 'ENV 1', { size: 9, align: 'left', color: '#D8D6D0' });
+  o += txt(e2 + 8, ebt + 6, 40, 'ENV 2', { size: 9, align: 'left', color: '#D8D6D0' });
+  const efy = ebt + 30, efh = 84, ely = ebt + 120;
+  const EF = (v, lbl, cap, sub) => ({
+    w: 22,
+    r: (x) => fader({ x: x + 4, y: efy, h: efh, sw: 14, cap: cap || 'grey', val: v, scale: false, label: lbl, lsize: 7.6, ly: ely })
+           + (sub ? txtInv(x - 2, ebt + 130, 26, sub, { size: 6.2 }) : '')
+  });
+  const EKT = (pos, label) => ({
+    w: wSw3(28),
+    r: (x) => sw3(Object.assign({ x: x, y: efy + 6, h: 28, pos: pos, opts: ['ON', '1/2', 'OFF'], label: label, lsize: 6.8, ly: ely, ssize: 5.6 }, ONBLACK))
+  });
+  o += pack({ x: g.x, w: EW }, [
+    EKT(2, 'KEYTRK'), GAP(2),
+    EF(0.12, 'A', 'grey', 'AH'), EF(0.40, 'D', 'grey', 'DH'), EF(0.66, 'S'), EF(0.30, 'R', 'orange')
+  ], 5);
+  o += pack({ x: e2, w: EW }, [
+    EKT(2, 'KEYTRK'), GAP(2),
+    EF(0.05, 'A'), EF(0.52, 'D', 'grey', 'DH'), EF(0.74, 'S'), EF(0.36, 'R', 'orange')
+  ], 5);
+
+  // -- DLY send
+  g = S.dly;
+  o += sect(g.x, y + 2, g.w, 'DLY');
+  o += pack(g, [F(0.22, 'SEND', 'orange')], 0);
+
+  // section separators
+  [S.mod.x, S.osc.x, S.mix.x, S.vcf.x, S.vca.x, S.env.x, S.dly.x]
+    .forEach((vx) => { o += vrule(vx - 10, y + 4, 172); });
+  o += vrule(S.lfo.x - 10, y + 4, 172);
+  return o;
+}
+
+// ------------------------------------------------------------- global strip
+function globalStrip(y) {
+  let o = '';
+  const T = y + 4, B = y + 22;
+  const mk = (x, w, title) => { o += txt(x, T, w, title, { size: 9.5, align: 'left', ls: 0.1 }); };
+
+  mk(44, 110, 'MANUAL');
+  o += button({ x: 46, y: B + 12, w: 26, on: false, label: 'LOWER' });
+  o += button({ x: 82, y: B + 12, w: 26, on: false, label: 'UPPER' });
+  o += txtInv(44, B + 42, 66, 'INIT PATCH', { size: 6.6 });
+  o += vrule(132, y + 4, 86);
+
+  mk(146, 60, 'TEMPO');
+  o += knob({ x: 152, y: B + 8, d: 32, v: 'cream', val: 0.42, ticks: 11, label: '', lsize: 7.4 });
+  o += txt(140, B + 44, 56, '30 . . 300', { size: 6.4, color: INK2, weight: 600 });
+  o += vrule(206, y + 4, 86);
+
+  mk(220, 80, 'HOLD');
+  o += button({ x: 222, y: B + 12, w: 26, on: false, label: 'LOWER' });
+  o += button({ x: 258, y: B + 12, w: 26, on: false, label: 'UPPER' });
+  o += vrule(300, y + 4, 86);
+
+  mk(314, 120, 'KEYBOARD');
+  o += button({ x: 316, y: B + 12, w: 26, on: true, label: 'SINGLE' });
+  o += button({ x: 352, y: B + 12, w: 26, on: false, label: 'DUAL' });
+  o += button({ x: 388, y: B + 12, w: 26, on: false, label: 'SPLIT' });
+  o += vrule(430, y + 4, 86);
+
+  // LAYER sits on a black inset on the hardware
+  o += blackPanel(442, y + 6, 104, 82);
+  o += txt(450, T + 4, 60, 'LAYER', { size: 9.5, align: 'left', color: '#D8D6D0', ls: 0.1 });
+  o += button({ x: 458, y: B + 14, w: 26, on: false, label: 'LOWER', dark: true });
+  o += button({ x: 500, y: B + 14, w: 26, on: true, label: 'UPPER', dark: true });
+
+  mk(562, 180, 'VOICE ASSIGN');
+  o += button({ x: 564, y: B + 12, w: 26, on: true, label: 'MODE' });
+  ['SOLO', 'LEGATO', 'POLY 1', 'POLY 2'].forEach((s, i) => {
+    o += led(600, B + 8 + i * 11, i === 2, 7);
+    o += txt(611, B + 8 + i * 11, 44, s, { size: 6.4, align: 'left', color: INK2, weight: 600 });
+  });
+  o += button({ x: 664, y: B + 12, w: 26, on: false, label: 'UNISON' });
+  o += button({ x: 700, y: B + 12, w: 26, on: true, label: 'BINAURAL' });
+  o += vrule(744, y + 4, 86);
+
+  mk(758, 320, 'ARPEGGIATOR / SEQUENCER');
+  o += button({ x: 760, y: B + 14, w: 26, on: false, label: 'ON' });
+  o += knob({ x: 798, y: B + 10, d: 30, v: 'cream', val: 0.5, ticks: 9, label: 'CLK DIV', lsize: 7.4 });
+  o += button({ x: 846, y: B + 14, w: 26, on: false, label: 'SYNC' });
+  o += button({ x: 882, y: B + 14, w: 26, on: false, label: 'RANGE' });
+  o += button({ x: 918, y: B + 14, w: 26, on: false, label: 'MODE' });
+  o += button({ x: 960, y: B + 14, w: 26, on: false, label: 'SEQ REC' });
+  o += button({ x: 996, y: B + 14, w: 26, on: false, label: 'LOAD' });
+  o += button({ x: 1032, y: B + 14, w: 26, on: false, label: 'STORE' });
+  o += vrule(1074, y + 4, 86);
+
+  // MOD ASSIGN matrix
+  mk(1088, 120, 'MOD AMOUNT');
+  o += knob({ x: 1092, y: B + 10, d: 32, v: 'orange', val: 0.5, ticks: 11, label: '', lsize: 7.4 });
+  o += txt(1080, B + 46, 56, '-100 . . +100', { size: 6.2, color: INK2, weight: 600 });
+  o += txt(1150, T, 120, 'MOD ASSIGN', { size: 9.5, align: 'left', ls: 0.1 });
+  const srcs = ['DDS 2', 'LFO 2', 'ENV 1', 'VEL', 'AT', 'EXPR', 'RIBBON', 'NOTE'];
+  const dsts = ['LFO 1 R', 'X MOD', 'WAVE', 'MIX', 'HPF', 'RES', 'ENV 1 D', 'DLY T'];
+  const mx = 1150, step = 54;
+  srcs.forEach((s, i) => {
+    o += button({ x: mx + i * step, y: B + 14, w: 24, on: i === 1, label: s, lsize: 6.4 });
+  });
+  dsts.forEach((s, i) => {
+    o += button({ x: mx + i * step, y: B + 48, w: 24, on: i === 4, label: s, lsize: 6.4, led: false });
+  });
+  o += txt(mx - 34, B + 18, 30, 'SRC', { size: 7, align: 'right', color: INK2 });
+  o += txt(mx - 34, B + 52, 30, 'DEST', { size: 7, align: 'right', color: INK2 });
+  o += vrule(1592, y + 4, 86);
+
+  mk(1606, 90, 'CHORUS');
+  o += button({ x: 1608, y: B + 14, w: 26, on: true, label: 'I' });
+  o += button({ x: 1644, y: B + 14, w: 26, on: false, label: 'II' });
+  o += vrule(1688, y + 4, 86);
+
+  mk(1702, 130, 'DELAY');
+  o += knob({ x: 1704, y: B + 10, d: 30, v: 'cream', val: 0.36, ticks: 11, label: 'TIME', lsize: 7.4 });
+  o += knob({ x: 1756, y: B + 10, d: 30, v: 'cream', val: 0.44, ticks: 11, label: 'FEEDBACK', lsize: 7.4 });
+  o += button({ x: 1806, y: B + 14, w: 26, on: false, label: 'FREEZE' });
+  o += vrule(1848, y + 4, 86);
+
+  // patch display + write controls, right end of the strip
+  mk(1862, 150, 'PATCH');
+  o += `<img src="${A.glass}" alt="" style="position:absolute;left:1862px;top:${B + 10}px;width:150px;height:40px;opacity:.92;">`;
+  o += txt(1872, B + 18, 130, 'A1-3   BINAURAL BRASS', { size: 9, align: 'left', color: '#20242B', ls: 0.04 });
+  o += txt(1872, B + 30, 130, 'PERF  A-1   SINGLE', { size: 7.2, align: 'left', color: '#4A5058', ls: 0.04 });
+  o += button({ x: 2026, y: B + 14, w: 26, on: false, label: 'EDIT' });
+  o += button({ x: 2062, y: B + 14, w: 26, on: false, label: 'SAVE' });
+  o += button({ x: 2098, y: B + 14, w: 26, on: false, label: 'A / B' });
+  o += button({ x: 2140, y: B + 14, w: 26, on: false, label: 'POWER' });
+  return o;
+}
+
+// -------------------------------------------------------------- lower block

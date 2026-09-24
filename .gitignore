@@ -1,0 +1,27 @@
+# build outputs
+build/
+build-mac/
+build-ninja/
+build-vs/
+dist/
+zips/
+$stage/
+_archive/
+
+# fetched dependencies: the macOS workflow clones JUCE and clap-juce-extensions itself,
+# and the WebView2 SDK is a Windows nupkg unpacked in place
+third_party/
+
+# generated preview pages and scratch files in ui/
+ui/_preview-*.html
+ui/*.dc.html
+
+.DS_Store
+Thumbs.db
+
+# heavy local reference material (85 MB): the manual, product photos, asset originals and
+# screenshots. The build does not use them; they stay on the workstation.
+docs/reference/
+docs/screenshots/
+docs/*.pdf
+*.pdf
