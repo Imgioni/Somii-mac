@@ -42,6 +42,13 @@ export class ParameterStore {
     const spec = this.specs[id];
     if (spec.type === 'toggle') return this.read(id) ? 'ON' : 'OFF';
     if (spec.type === 'combo') return spec.range.trim().split('|')[this.actual(id)];
+    // envelope times, as the engine reads them: 10 s × position², at least 1 ms (taper::envTime)
+    if (/\.env[12]\.(attack|attackHold|decay|decayHold|release)$/.test(id)) {
+      const n = this.read(id);
+      if (/Hold$/.test(id) && n <= 0) return 'OFF';
+      const t = Math.max(0.001, 10 * n * n);
+      return t < 1 ? Math.round(t * 1000) + ' ms' : t.toFixed(2) + ' s';
+    }
     return this.actual(id).toFixed(2);
   }
   snapshot() { return Object.fromEntries(Object.keys(this.specs).map(id => [id,this.read(id)])); }
