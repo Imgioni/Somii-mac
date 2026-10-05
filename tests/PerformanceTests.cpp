@@ -192,7 +192,7 @@ public:
         {
             Rig r;
             r.up.voiceMode = mode;
-            r.up.e2Decay = 0.45f; r.up.e2Sustain = 0.0f;  // 63 ms decay: silent long before the 2nd note
+            r.up.e2Decay = 0.0796f; r.up.e2Sustain = 0.0f;  // 63 ms decay: silent long before the 2nd note
             r.init();
             r.e.noteOn (1, 57, 1.0f); r.run (0.8);
             r.e.noteOn (1, 60, 1.0f);                     // played legato
@@ -211,7 +211,7 @@ public:
         {
             auto voicesAfterRepress = [] (VoiceMode mode)
             {
-                Rig r; r.up.voiceMode = mode; r.up.e2Release = 0.8f; r.init();
+                Rig r; r.up.voiceMode = mode; r.up.e2Release = 0.3981f; r.init();
                 r.e.noteOn (1, 60, 1.0f); r.run (0.1);
                 r.e.noteOff (1, 60); r.run (0.05);
                 r.e.noteOn (1, 60, 1.0f); r.run (0.05);
@@ -360,6 +360,23 @@ public:
                 logMessage ("  from " + juce::String (from) + ": pitch after 0.25 s = " + juce::String (mid, 2));
                 expectWithinAbsoluteError (mid, expected, 0.3f);
             }
+        }
+
+        beginTest ("Portamento in POLY slides from the last note played, not the voice's old note (user, 2026-10-05)");
+        {
+            Rig r; r.up.voiceMode = VoiceMode::Poly1; r.up.portaTime = portaFor (0.5f); r.init();
+            for (int n : { 45, 57 }) { r.e.noteOn (1, n, 1.0f); r.run (0.6); r.e.noteOff (1, n); r.run (0.05); }
+            r.e.noteOn (1, 69, 1.0f);
+            r.run (0.25);
+            const auto* v = r.e.layer (0).getNewestVoice();
+            expect (v != nullptr, "a voice is playing");
+            if (v != nullptr) expectWithinAbsoluteError (v->getPitch(), 57.0f + 6.0f, 0.4f, "halfway from A3, the last note");
+            // a chord after it: every note of it starts from A4, the note before the chord
+            r.e.noteOff (1, 69); r.run (0.05);
+            r.e.noteOn (1, 60, 1.0f); r.e.noteOn (1, 64, 1.0f);
+            r.run (0.01);
+            const auto* c = r.e.layer (0).getNewestVoice();
+            if (c != nullptr) expectWithinAbsoluteError (c->getPitch(), 69.0f, 0.4f, "the chord's E4 starts from A4, not from C4");
         }
     }
 };

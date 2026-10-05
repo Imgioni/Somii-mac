@@ -19,6 +19,8 @@ public:
         beginTest ("Envelope times 1 ms … 10 s [pp.47–53]");
         expectWithinAbsoluteError (taper::envTime (0.0f), 0.001f, 1.0e-6f);
         expectWithinAbsoluteError (taper::envTime (1.0f), 10.0f, 1.0e-3f);
+        expectWithinAbsoluteError (taper::envTime (0.5f), 2.5f, 1.0e-3f);     // the gentle curve: halfway is 2.5 s (2026-10-05)
+        expectWithinAbsoluteError (taper::envPosition (taper::envTime (0.3f)), 0.3f, 1.0e-4f);
         expectEquals (taper::holdTime (0.0f), 0.0f, "hold at minimum = no effect [p.47]");
         expectWithinAbsoluteError (taper::holdTime (1.0f), 10.0f, 1.0e-3f);
 

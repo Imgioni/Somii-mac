@@ -18,12 +18,14 @@ upper.dds1.range	combo	0.60000	6	64'|32'|16'|8'|4'|2'
 upper.dds1.altA	combo	0.00000	32	W1 Organ 8+4|W2 Drawbar Full|W3 Hollow|W4 Pulse 25|W5 Pulse 10|W6 Formant Ah|W7 Formant Oh|W8 Formant Ee|W9 Sync 2.5|W10 Sync 3.7|W11 Sync 5.3|W12 Resonant 8|W13 Resonant 16|W14 Pluck Comb|W15 Reed|W16 Bell Partials|W17 Sine Fold 1|W18 Sine Fold 2|W19 Soft Square|W20 Half Rect|W21 Full Rect|W22 Saw + 12th|W23 Square Octaves|W24 Digital 1|W25 Digital 2|W26 Digital 3|W27 Staircase 4|W28 Staircase 8|W29 Exp Saw|W30 Parabola|W31 Double Pulse|W32 Noise Cycle
 upper.dds1.altB	combo	0.03226	32	W1 Organ 8+4|W2 Drawbar Full|W3 Hollow|W4 Pulse 25|W5 Pulse 10|W6 Formant Ah|W7 Formant Oh|W8 Formant Ee|W9 Sync 2.5|W10 Sync 3.7|W11 Sync 5.3|W12 Resonant 8|W13 Resonant 16|W14 Pluck Comb|W15 Reed|W16 Bell Partials|W17 Sine Fold 1|W18 Sine Fold 2|W19 Soft Square|W20 Half Rect|W21 Full Rect|W22 Saw + 12th|W23 Square Octaves|W24 Digital 1|W25 Digital 2|W26 Digital 3|W27 Staircase 4|W28 Staircase 8|W29 Exp Saw|W30 Parabola|W31 Double Pulse|W32 Noise Cycle
 upper.dds1.smpOn	toggle	0.00000	2	on|off
-upper.dds1.smpLoop	combo	0.00000	2	ONE SHOT|LOOP
+upper.dds1.smpLoop	combo	0.00000	3	ONE SHOT|LOOP|SLICE
 upper.dds1.smpStart	slider	0.00000	0	0.0000..1.0000
 upper.dds1.smpEnd	slider	1.00000	0	0.0000..1.0000
 upper.dds1.smpLoopStart	slider	0.00000	0	0.0000..1.0000
 upper.dds1.smpLevel	slider	0.80000	0	0.0000..1.0000
 upper.dds1.smpRoot	combo	0.47244	128	C-1|C♯-1|D-1|D♯-1|E-1|F-1|F♯-1|G-1|G♯-1|A-1|A♯-1|B-1|C0|C♯0|D0|D♯0|E0|F0|F♯0|G0|G♯0|A0|A♯0|B0|C1|C♯1|D1|D♯1|E1|F1|F♯1|G1|G♯1|A1|A♯1|B1|C2|C♯2|D2|D♯2|E2|F2|F♯2|G2|G♯2|A2|A♯2|B2|C3|C♯3|D3|D♯3|E3|F3|F♯3|G3|G♯3|A3|A♯3|B3|C4|C♯4|D4|D♯4|E4|F4|F♯4|G4|G♯4|A4|A♯4|B4|C5|C♯5|D5|D♯5|E5|F5|F♯5|G5|G♯5|A5|A♯5|B5|C6|C♯6|D6|D♯6|E6|F6|F♯6|G6|G♯6|A6|A♯6|B6|C7|C♯7|D7|D♯7|E7|F7|F♯7|G7|G♯7|A7|A♯7|B7|C8|C♯8|D8|D♯8|E8|F8|F♯8|G8|G♯8|A8|A♯8|B8|C9|C♯9|D9|D♯9|E9|F9|F♯9|G9
+upper.dds1.smpSlices	combo	0.00000	6	AUTO|4|8|16|32|64
+upper.dds1.smpSense	slider	0.50000	0	0.0000..1.0000
 upper.dds1.smpFine	slider	0.50000	0	-100.0000..100.0000
 upper.dds2.wave	combo	0.40000	6	SINE|SAW|SQUARE|TRIANGLE|NOISE|PULSE
 upper.dds2.range	combo	0.60000	6	LFO|32'|16'|8'|4'|2'
@@ -35,6 +37,14 @@ upper.vcf.drive	combo	0.00000	3	OFF|1|2
 upper.vcf.hpf	slider	0.00000	0	0.0000..1.0000
 upper.vcf.lpf	slider	1.00000	0	0.0000..1.0000
 upper.vcf.res	slider	0.00000	0	0.0000..1.0000
+upper.vcf.style	combo	0.00000	2	SG|3W
+upper.vcf.saturation	slider	0.00000	0	0.0000..1.0000
+upper.vcf.velocity	slider	0.00000	0	0.0000..1.0000
+upper.svf.on	toggle	0.00000	2	on|off
+upper.svf.cutoff	slider	1.00000	0	0.0000..1.0000
+upper.svf.res	slider	0.00000	0	0.0000..1.0000
+upper.svf.mode	slider	0.00000	0	0.0000..1.0000
+upper.svf.band	toggle	0.00000	2	on|off
 upper.vcf.envSource	combo	0.00000	3	ENV 1|1+2|ENV 2
 upper.vcf.keytrack	combo	0.00000	3	OFF|1/2|ON
 upper.vcf.envAmt	slider	0.00000	0	0.0000..1.0000
@@ -48,20 +58,21 @@ upper.vca.dynamics	combo	1.00000	3	OFF|1/2|ON
 upper.env1.attackHold	slider	0.00000	0	0.0000..1.0000
 upper.env1.attack	slider	0.00000	0	0.0000..1.0000
 upper.env1.decayHold	slider	0.00000	0	0.0000..1.0000
-upper.env1.decay	slider	0.67470	0	0.0000..1.0000
+upper.env1.decay	slider	0.22360	0	0.0000..1.0000
 upper.env1.sustain	slider	0.00000	0	0.0000..1.0000
-upper.env1.release	slider	0.67470	0	0.0000..1.0000
+upper.env1.release	slider	0.22360	0	0.0000..1.0000
 upper.env1.mode	combo	0.00000	3	NORMAL|INVERTED|LOOP
 upper.env1.keytrack	combo	0.00000	3	OFF|1/2|ON
 upper.env2.attack	slider	0.00000	0	0.0000..1.0000
 upper.env2.decayHold	slider	0.00000	0	0.0000..1.0000
-upper.env2.decay	slider	0.67470	0	0.0000..1.0000
+upper.env2.decay	slider	0.22360	0	0.0000..1.0000
 upper.env2.sustain	slider	1.00000	0	0.0000..1.0000
-upper.env2.release	slider	0.50000	0	0.0000..1.0000
+upper.env2.release	slider	0.10000	0	0.0000..1.0000
 upper.lfo1.wave	combo	0.00000	6	TRIANGLE|REV SAW|S&H|SQUARE|HF|HF TRK
 upper.lfo1.rate	slider	0.66670	0	0.0000..1.0000
 upper.lfo1.delay	slider	0.00000	0	0.0000..1.0000
 upper.lfo1.lrPhase	slider	0.00000	0	0.0000..1.0000
+upper.lfo1.phaseMode	combo	0.00000	2	MODE 1|MODE 2
 upper.lfo1.mode	combo	0.00000	3	FREE / NORM|ONCE / DDS 1|RESET / DDS 2
 upper.ddsMod.lfo1Amt	slider	0.00000	0	0.0000..1.0000
 upper.ddsMod.env1Amt	slider	0.00000	0	0.0000..1.0000
@@ -109,12 +120,14 @@ lower.dds1.range	combo	0.60000	6	64'|32'|16'|8'|4'|2'
 lower.dds1.altA	combo	0.00000	32	W1 Organ 8+4|W2 Drawbar Full|W3 Hollow|W4 Pulse 25|W5 Pulse 10|W6 Formant Ah|W7 Formant Oh|W8 Formant Ee|W9 Sync 2.5|W10 Sync 3.7|W11 Sync 5.3|W12 Resonant 8|W13 Resonant 16|W14 Pluck Comb|W15 Reed|W16 Bell Partials|W17 Sine Fold 1|W18 Sine Fold 2|W19 Soft Square|W20 Half Rect|W21 Full Rect|W22 Saw + 12th|W23 Square Octaves|W24 Digital 1|W25 Digital 2|W26 Digital 3|W27 Staircase 4|W28 Staircase 8|W29 Exp Saw|W30 Parabola|W31 Double Pulse|W32 Noise Cycle
 lower.dds1.altB	combo	0.03226	32	W1 Organ 8+4|W2 Drawbar Full|W3 Hollow|W4 Pulse 25|W5 Pulse 10|W6 Formant Ah|W7 Formant Oh|W8 Formant Ee|W9 Sync 2.5|W10 Sync 3.7|W11 Sync 5.3|W12 Resonant 8|W13 Resonant 16|W14 Pluck Comb|W15 Reed|W16 Bell Partials|W17 Sine Fold 1|W18 Sine Fold 2|W19 Soft Square|W20 Half Rect|W21 Full Rect|W22 Saw + 12th|W23 Square Octaves|W24 Digital 1|W25 Digital 2|W26 Digital 3|W27 Staircase 4|W28 Staircase 8|W29 Exp Saw|W30 Parabola|W31 Double Pulse|W32 Noise Cycle
 lower.dds1.smpOn	toggle	0.00000	2	on|off
-lower.dds1.smpLoop	combo	0.00000	2	ONE SHOT|LOOP
+lower.dds1.smpLoop	combo	0.00000	3	ONE SHOT|LOOP|SLICE
 lower.dds1.smpStart	slider	0.00000	0	0.0000..1.0000
 lower.dds1.smpEnd	slider	1.00000	0	0.0000..1.0000
 lower.dds1.smpLoopStart	slider	0.00000	0	0.0000..1.0000
 lower.dds1.smpLevel	slider	0.80000	0	0.0000..1.0000
 lower.dds1.smpRoot	combo	0.47244	128	C-1|C♯-1|D-1|D♯-1|E-1|F-1|F♯-1|G-1|G♯-1|A-1|A♯-1|B-1|C0|C♯0|D0|D♯0|E0|F0|F♯0|G0|G♯0|A0|A♯0|B0|C1|C♯1|D1|D♯1|E1|F1|F♯1|G1|G♯1|A1|A♯1|B1|C2|C♯2|D2|D♯2|E2|F2|F♯2|G2|G♯2|A2|A♯2|B2|C3|C♯3|D3|D♯3|E3|F3|F♯3|G3|G♯3|A3|A♯3|B3|C4|C♯4|D4|D♯4|E4|F4|F♯4|G4|G♯4|A4|A♯4|B4|C5|C♯5|D5|D♯5|E5|F5|F♯5|G5|G♯5|A5|A♯5|B5|C6|C♯6|D6|D♯6|E6|F6|F♯6|G6|G♯6|A6|A♯6|B6|C7|C♯7|D7|D♯7|E7|F7|F♯7|G7|G♯7|A7|A♯7|B7|C8|C♯8|D8|D♯8|E8|F8|F♯8|G8|G♯8|A8|A♯8|B8|C9|C♯9|D9|D♯9|E9|F9|F♯9|G9
+lower.dds1.smpSlices	combo	0.00000	6	AUTO|4|8|16|32|64
+lower.dds1.smpSense	slider	0.50000	0	0.0000..1.0000
 lower.dds1.smpFine	slider	0.50000	0	-100.0000..100.0000
 lower.dds2.wave	combo	0.40000	6	SINE|SAW|SQUARE|TRIANGLE|NOISE|PULSE
 lower.dds2.range	combo	0.60000	6	LFO|32'|16'|8'|4'|2'
@@ -126,6 +139,14 @@ lower.vcf.drive	combo	0.00000	3	OFF|1|2
 lower.vcf.hpf	slider	0.00000	0	0.0000..1.0000
 lower.vcf.lpf	slider	1.00000	0	0.0000..1.0000
 lower.vcf.res	slider	0.00000	0	0.0000..1.0000
+lower.vcf.style	combo	0.00000	2	SG|3W
+lower.vcf.saturation	slider	0.00000	0	0.0000..1.0000
+lower.vcf.velocity	slider	0.00000	0	0.0000..1.0000
+lower.svf.on	toggle	0.00000	2	on|off
+lower.svf.cutoff	slider	1.00000	0	0.0000..1.0000
+lower.svf.res	slider	0.00000	0	0.0000..1.0000
+lower.svf.mode	slider	0.00000	0	0.0000..1.0000
+lower.svf.band	toggle	0.00000	2	on|off
 lower.vcf.envSource	combo	0.00000	3	ENV 1|1+2|ENV 2
 lower.vcf.keytrack	combo	0.00000	3	OFF|1/2|ON
 lower.vcf.envAmt	slider	0.00000	0	0.0000..1.0000
@@ -139,20 +160,21 @@ lower.vca.dynamics	combo	1.00000	3	OFF|1/2|ON
 lower.env1.attackHold	slider	0.00000	0	0.0000..1.0000
 lower.env1.attack	slider	0.00000	0	0.0000..1.0000
 lower.env1.decayHold	slider	0.00000	0	0.0000..1.0000
-lower.env1.decay	slider	0.67470	0	0.0000..1.0000
+lower.env1.decay	slider	0.22360	0	0.0000..1.0000
 lower.env1.sustain	slider	0.00000	0	0.0000..1.0000
-lower.env1.release	slider	0.67470	0	0.0000..1.0000
+lower.env1.release	slider	0.22360	0	0.0000..1.0000
 lower.env1.mode	combo	0.00000	3	NORMAL|INVERTED|LOOP
 lower.env1.keytrack	combo	0.00000	3	OFF|1/2|ON
 lower.env2.attack	slider	0.00000	0	0.0000..1.0000
 lower.env2.decayHold	slider	0.00000	0	0.0000..1.0000
-lower.env2.decay	slider	0.67470	0	0.0000..1.0000
+lower.env2.decay	slider	0.22360	0	0.0000..1.0000
 lower.env2.sustain	slider	1.00000	0	0.0000..1.0000
-lower.env2.release	slider	0.50000	0	0.0000..1.0000
+lower.env2.release	slider	0.10000	0	0.0000..1.0000
 lower.lfo1.wave	combo	0.00000	6	TRIANGLE|REV SAW|S&H|SQUARE|HF|HF TRK
 lower.lfo1.rate	slider	0.66670	0	0.0000..1.0000
 lower.lfo1.delay	slider	0.00000	0	0.0000..1.0000
 lower.lfo1.lrPhase	slider	0.00000	0	0.0000..1.0000
+lower.lfo1.phaseMode	combo	0.00000	2	MODE 1|MODE 2
 lower.lfo1.mode	combo	0.00000	3	FREE / NORM|ONCE / DDS 1|RESET / DDS 2
 lower.ddsMod.lfo1Amt	slider	0.00000	0	0.0000..1.0000
 lower.ddsMod.env1Amt	slider	0.00000	0	0.0000..1.0000
@@ -700,7 +722,7 @@ lower.mtxd.note.22	slider	0.50000	0	-1.0000..1.0000
 lower.mtxd.note.23	slider	0.50000	0	-1.0000..1.0000
 lower.mtxd.note.24	slider	0.50000	0	-1.0000..1.0000
 fx.mode	combo	0.00000	2	SERIAL|PARALLEL
-fx1.type	combo	0.00000	22	NONE|PS DELAY|OCEANA|ECHO DELAY|CONVOLVER|TUBO|SATURNE|DISTORTION|BITCRUSHER|WULF COMP|FARADAE LIMITER|MULTIBAND|PHASER PAN|FLANGER|STEREO PAN|PRO-EQ|FILTER|COLOR|AMBIENT|VALLEYVERB|STEREO IMAGER|STORT
+fx1.type	combo	0.00000	23	NONE|PS DELAY|UNDERTOW|ECHO DELAY|CONVOLVER|VALVE|HEAT|DISTORTION|BITCRUSHER|PUMP|CEILING|MULTIBAND|PHASER PAN|FLANGER|STEREO PAN|CONTOUR|FILTER|PRISM|HALO|SPACES|STEREO IMAGER|MARBLE|PARLOUR
 fx1.on	toggle	1.00000	2	on|off
 fx1.mix	slider	1.00000	0	0.0000..1.0000
 fx1.layer	slider	0.50000	0	0.0000..1.0000
@@ -732,7 +754,7 @@ fx1.p25	slider	0.00000	0	0.0000..1.0000
 fx1.p26	slider	0.00000	0	0.0000..1.0000
 fx1.p27	slider	0.00000	0	0.0000..1.0000
 fx1.p28	slider	0.00000	0	0.0000..1.0000
-fx2.type	combo	0.00000	22	NONE|PS DELAY|OCEANA|ECHO DELAY|CONVOLVER|TUBO|SATURNE|DISTORTION|BITCRUSHER|WULF COMP|FARADAE LIMITER|MULTIBAND|PHASER PAN|FLANGER|STEREO PAN|PRO-EQ|FILTER|COLOR|AMBIENT|VALLEYVERB|STEREO IMAGER|STORT
+fx2.type	combo	0.00000	23	NONE|PS DELAY|UNDERTOW|ECHO DELAY|CONVOLVER|VALVE|HEAT|DISTORTION|BITCRUSHER|PUMP|CEILING|MULTIBAND|PHASER PAN|FLANGER|STEREO PAN|CONTOUR|FILTER|PRISM|HALO|SPACES|STEREO IMAGER|MARBLE|PARLOUR
 fx2.on	toggle	1.00000	2	on|off
 fx2.mix	slider	1.00000	0	0.0000..1.0000
 fx2.layer	slider	0.50000	0	0.0000..1.0000
@@ -764,7 +786,7 @@ fx2.p25	slider	0.00000	0	0.0000..1.0000
 fx2.p26	slider	0.00000	0	0.0000..1.0000
 fx2.p27	slider	0.00000	0	0.0000..1.0000
 fx2.p28	slider	0.00000	0	0.0000..1.0000
-fx3.type	combo	0.00000	22	NONE|PS DELAY|OCEANA|ECHO DELAY|CONVOLVER|TUBO|SATURNE|DISTORTION|BITCRUSHER|WULF COMP|FARADAE LIMITER|MULTIBAND|PHASER PAN|FLANGER|STEREO PAN|PRO-EQ|FILTER|COLOR|AMBIENT|VALLEYVERB|STEREO IMAGER|STORT
+fx3.type	combo	0.00000	23	NONE|PS DELAY|UNDERTOW|ECHO DELAY|CONVOLVER|VALVE|HEAT|DISTORTION|BITCRUSHER|PUMP|CEILING|MULTIBAND|PHASER PAN|FLANGER|STEREO PAN|CONTOUR|FILTER|PRISM|HALO|SPACES|STEREO IMAGER|MARBLE|PARLOUR
 fx3.on	toggle	1.00000	2	on|off
 fx3.mix	slider	1.00000	0	0.0000..1.0000
 fx3.layer	slider	0.50000	0	0.0000..1.0000
@@ -796,3 +818,19 @@ fx3.p25	slider	0.00000	0	0.0000..1.0000
 fx3.p26	slider	0.00000	0	0.0000..1.0000
 fx3.p27	slider	0.00000	0	0.0000..1.0000
 fx3.p28	slider	0.00000	0	0.0000..1.0000
+upper.tw.cutoff	slider	1.00000	0	0.0000..1.0000
+upper.tw.res	slider	0.00000	0	0.0000..1.0000
+upper.tw.envAmt	slider	0.50000	0	0.0000..1.0000
+upper.tw.keytrack	slider	0.00000	0	0.0000..1.0000
+upper.svf.envAmt	slider	0.50000	0	0.0000..1.0000
+upper.svf.velocity	slider	0.00000	0	0.0000..1.0000
+upper.svf.keytrack	slider	0.00000	0	0.0000..1.0000
+upper.tw.resComp	toggle	1.00000	2	on|off
+lower.tw.cutoff	slider	1.00000	0	0.0000..1.0000
+lower.tw.res	slider	0.00000	0	0.0000..1.0000
+lower.tw.envAmt	slider	0.50000	0	0.0000..1.0000
+lower.tw.keytrack	slider	0.00000	0	0.0000..1.0000
+lower.svf.envAmt	slider	0.50000	0	0.0000..1.0000
+lower.svf.velocity	slider	0.00000	0	0.0000..1.0000
+lower.svf.keytrack	slider	0.00000	0	0.0000..1.0000
+lower.tw.resComp	toggle	1.00000	2	on|off

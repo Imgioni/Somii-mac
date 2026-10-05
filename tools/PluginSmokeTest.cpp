@@ -281,10 +281,65 @@ int main (int argc, char* argv[])
         {
             const double ratio = static_cast<double> (editor->getWidth()) / juce::jmax (1, editor->getHeight());
             std::cout << "  editor size " << editor->getWidth() << " x " << editor->getHeight() << std::endl;
-            check (std::abs (ratio - 3400.0 / 1330.0) < 0.02 && editor->getWidth() >= 900, "editor keeps the 3400 x 1330 aspect ratio");
+            const bool knownLayout = std::abs (ratio - 3400.0 / 1330.0) < 0.02
+                                  || std::abs (ratio - 2028.0 / 1152.0) < 0.02;
+            check (knownLayout && editor->getWidth() >= 1190, "editor keeps the panel or desktop layout aspect ratio");
         }
     }
 
+    // Separate filter banks survive mode changes and real VST3 state round-trips.
+    {
+        auto named = [&] (const juce::String& name) -> juce::AudioProcessorParameter*
+        {
+            for (auto* p : plugin->getParameters()) if (p->getName (64) == name) return p;
+            return nullptr;
+        };
+        auto* tw = named ("upper 3W tw.cutoff");
+        auto* style = named ("Upper VCF Style");
+        check (tw != nullptr && style != nullptr, "independent 3W parameters exposed by VST3");
+        if (tw && style)
+        {
+            auto flush = [&] { midi.clear(); buffer.clear(); plugin->processBlock (buffer, midi); };
+            lpf->setValueNotifyingHost (0.23f);
+            tw->setValueNotifyingHost (0.78f);
+            style->setValueNotifyingHost (1.0f);
+            flush();
+            juce::MemoryBlock saved;
+            plugin->getStateInformation (saved);
+            lpf->setValueNotifyingHost (0.9f); tw->setValueNotifyingHost (0.1f); flush();
+            plugin->setStateInformation (saved.getData(), static_cast<int> (saved.getSize()));
+            flush();
+            check (std::abs (lpf->getValue() - 0.23f) < 0.001f && std::abs (tw->getValue() - 0.78f) < 0.001f,
+                   "SG and 3W cutoffs recall independently");
+            style->setValueNotifyingHost (0.0f); flush();
+            check (std::abs (lpf->getValue() - 0.23f) < 0.001f && std::abs (tw->getValue() - 0.78f) < 0.001f,
+                   "switching back to SG preserves both banks");
+
+            // Remove the new IDs to simulate a patch saved before independent banks existed.
+            auto wrap = juce::AudioProcessor::getXmlFromBinary (saved.getData(), static_cast<int> (saved.getSize()));
+            auto* component = wrap ? wrap->getChildByName ("IComponent") : nullptr;
+            juce::MemoryBlock data;
+            if (component && data.fromBase64Encoding (component->getAllSubText()))
+            {
+                auto xml = juce::AudioProcessor::getXmlFromBinary (data.getData(), static_cast<int> (data.getSize()));
+                if (xml)
+                {
+                    for (int i = xml->getNumChildElements(); --i >= 0;)
+                    {
+                        auto* child = xml->getChildElement (i);
+                        if (child->getStringAttribute ("id").contains (".tw.")) xml->removeChildElement (child, true);
+                    }
+                    juce::AudioProcessor::copyXmlToBinary (*xml, data);
+                    component->deleteAllTextElements(); component->addTextElement (data.toBase64Encoding());
+                    juce::AudioProcessor::copyXmlToBinary (*wrap, data);
+                    plugin->setStateInformation (data.getData(), static_cast<int> (data.getSize())); flush();
+                    check (std::abs (tw->getValue() - 0.23f) < 0.001f, "legacy patch seeds 3W from its stored SG cutoff");
+                }
+                else check (false, "legacy patch state decodes");
+            }
+            else check (false, "legacy VST3 state wrapper decodes");
+        }
+    }
     plugin->releaseResources();
     plugin.reset();
 

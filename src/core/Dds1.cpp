@@ -95,6 +95,44 @@ void Dds1::setSample (const Sample* s, bool loop, float start, float end, float 
     smpXf = std::max (1.0, std::min (static_cast<double> (s->rate) * (loop ? 0.030 : 0.005), 0.25 * (smpHi - (loop ? smpLoopLo : smpLo))));
     // FINE raises the pitch by lowering the root frequency the sample is heard at.
     smpScale = s->rate / noteToHz (static_cast<float> (root) - fineCents * 0.01f);
+    smpRoot = root; smpFineCents = fineCents;
+}
+
+// SLICE (user, 2026-10-05: chop a dropped loop or song across the keys): the key's slice of
+// START..END becomes the play region, heard at the file's own speed on every key; keys below
+// ROOT KEY or past the last slice are silent. AUTO cuts at the transients at least as strong as
+// SENSITIVITY asks (Sample::sliceThreshold, at least 30 ms apart); 4..64 cut equal slices.
+// ui/geminus.js draws the slices with the same rule.
+void Dds1::setSlice (bool on, int slices, float sense, int note) noexcept
+{
+    if (! on || smp == nullptr) return;
+    smpLoop = false;
+    const int k = note - smpRoot;
+    const double lo = smpLo, hi = smpHi;
+    double a = 0.0, b = 0.0;
+    if (k >= 0 && slices > 0)
+    {
+        if (k < slices) { a = lo + (hi - lo) * k / slices; b = lo + (hi - lo) * (k + 1) / slices; }
+    }
+    else if (k >= 0)
+    {
+        const float thr = Sample::sliceThreshold (sense);
+        const double minGap = 0.03 * smp->rate;
+        double prev = lo;
+        int idx = 0;
+        for (size_t j = 0; j < smp->onsetPos.size() && b <= a; ++j)
+        {
+            const double p = smp->onsetPos[j];
+            if (p <= prev + minGap || p >= hi - minGap || smp->onsetStr[j] < thr) continue;
+            if (idx == k) { a = prev; b = p; }
+            prev = p; ++idx;
+        }
+        if (b <= a && idx == k) { a = prev; b = hi; }
+    }
+    if (b <= a) { smpLo = smpHi = 0.0; return; }     // no slice for this key: silent
+    smpLo = a; smpHi = b;
+    smpXf = std::max (1.0, std::min (static_cast<double> (smp->rate) * 0.004, 0.25 * (b - a)));
+    smpScale = smp->rate / noteToHz (static_cast<float> (note) - smpFineCents * 0.01f);
 }
 
 void Dds1::setSuper (Tri superMode, float detuneAmount, bool mirrored) noexcept

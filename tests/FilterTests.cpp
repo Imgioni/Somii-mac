@@ -27,6 +27,261 @@ std::vector<float> sine (double hz, double fs, int n, float amp)
 }
 } // namespace
 
+class FilterEngineTests final : public juce::UnitTest
+{
+public:
+    FilterEngineTests() : juce::UnitTest ("VCF STYLE: two separate engines", "filter") {}
+
+    static sg::LayerParams patch (sg::VcfStyle style)
+    {
+        sg::LayerParams p;
+        p.vcfStyle = style;
+        p.lpf = 0.45f;
+        p.res = 0.6f;
+        p.twCutoff = p.lpf;
+        p.twRes = p.res;
+        p.e2Release = 0.0398f;   // 16 ms
+        return p;
+    }
+    static double rms (const std::vector<float>& v, size_t from)
+    {
+        double s2 = 0.0;
+        for (size_t i = from; i < v.size(); ++i) s2 += static_cast<double> (v[i]) * v[i];
+        return std::sqrt (s2 / std::max<size_t> (1, v.size() - from));
+    }
+    static std::vector<float> render (const sg::LayerParams& p)
+    {
+        sg::LayerEngine e; sgt::prepareEngine (e, p);
+        return sgt::renderNote (e, 45, 1.0f, 1.0).l;
+    }
+
+    void runTest() override
+    {
+        beginTest ("Super Gemini Drive 1 matches Off with no resonance [UDO clarification]");
+        {
+            SsiLadder off, one;
+            off.setCutoff (4000.0f, 96000.0f); one.setCutoff (4000.0f, 96000.0f);
+            off.setResonance (0.0f, Drive::Off); one.setResonance (0.0f, Drive::One);
+            float difference = 0.0f;
+            for (int i = 0; i < 9600; ++i)
+            {
+                const float x = 0.8f * std::sin (kTwoPi * 220.0f * i / 96000.0f);
+                difference = std::max (difference, std::abs (off.process (x) - one.process (x)));
+            }
+            expectLessThan (difference, 1.0e-7f);
+        }
+        beginTest ("Independent bipolar LPF and SVF envelope controls and keyboard tracking");
+        {
+            const auto& bank = AltWaveBank::factory();
+            LayerParams p;
+            LayerControl c;
+            p.vcfStyle = VcfStyle::ThirdWave;
+            p.twEnv = 0.0f; p.svfEnv = 1.0f; p.twKey = 0.5f; p.svfKey = 1.0f;
+            c.update (p, bank);
+            expectWithinAbsoluteError (c.vcfEnvOct, -10.0f, 0.001f);
+            expectWithinAbsoluteError (c.svfEnvOct, 10.0f, 0.001f);
+            expectWithinAbsoluteError (c.keytrackK, 1.0f, 0.001f);
+            expectWithinAbsoluteError (c.svfKeyK, 2.0f, 0.001f);
+        }
+        beginTest ("The two styles are different filters, not one with different settings");
+        {
+            auto sg1 = render (patch (sg::VcfStyle::Sg));
+            auto tw = render (patch (sg::VcfStyle::ThirdWave));
+            auto specSg = sgt::spectrum (sg1, 4800, 14, sgt::kFs);
+            auto specTw = sgt::spectrum (tw, 4800, 14, sgt::kFs);
+            // same note, same cutoff and resonance: compare the harmonic series each one passes
+            double diff = 0.0;
+            for (int h = 1; h <= 12; ++h)
+            {
+                const double f0 = 110.0 * h;
+                const double a = sgt::Spectrum::db (specSg.magAt (f0)), b = sgt::Spectrum::db (specTw.magAt (f0));
+                diff = std::max (diff, std::abs (a - b));
+            }
+            logMessage ("  biggest harmonic difference between the engines: " + juce::String (diff, 2) + " dB");
+            expectGreaterThan (diff, 3.0, "the engines shape the sound differently");
+        }
+
+        beginTest ("Each pole saturates (OTA), unlike the ladder's single input stage");
+        {
+            // drive both filters hard with the same tone and compare where the harmonics land
+            auto harmonics = [] (bool curtis)
+            {
+                std::vector<float> out (static_cast<size_t> (sgt::kFs));
+                CurtisFilter c; SsiLadder l;
+                c.reset(); c.setCutoff (4000.0f, sgt::kFs); c.setResonance (0.3f); c.setSaturation (0.0f);
+                l.reset(); l.setCutoff (4000.0f, sgt::kFs); l.setResonance (0.3f, Drive::Off);
+                for (size_t i = 0; i < out.size(); ++i)
+                {
+                    const float x = 2.0f * std::sin (kTwoPi * 220.0f * static_cast<float> (i) / sgt::kFs);
+                    out[i] = curtis ? c.process (x) : l.process (x);
+                }
+                auto sp = sgt::spectrum (out, static_cast<int> (out.size() / 2), 14, sgt::kFs);
+                const float f1 = sp.magAt (220.0);
+                return std::make_pair (sp.magAt (660.0) / std::max (1.0e-9f, f1), sp.magAt (1100.0) / std::max (1.0e-9f, f1));
+            };
+            const auto cur = harmonics (true), lad = harmonics (false);
+            logMessage ("  driven hard - 3rd/5th harmonic: Curtis " + juce::String (cur.first, 4) + "/" + juce::String (cur.second, 4)
+                        + "   ladder " + juce::String (lad.first, 4) + "/" + juce::String (lad.second, 4));
+            // the ladder bends once at its input, so it colours earlier; the OTA stages bend
+            // gently inside each pole. Either way the two must not land in the same place.
+            const float ratio = std::max (cur.first, lad.first) / std::max (1.0e-9f, std::min (cur.first, lad.first));
+            expectGreaterThan (ratio, 2.0f, "the two topologies distort differently");
+        }
+
+        beginTest ("Only the selected engine is in the path");
+        {
+            // SG style: the 3rd Wave controls must do nothing at all
+            auto a = patch (sg::VcfStyle::Sg);
+            auto b = a; b.vcfSat = 1.0f; b.svfOn = true; b.svfCutoff = 0.2f; b.svfRes = 0.9f; b.svfModeMix = 1.0f;
+            b.vcfVelocity = 1.0f; b.twCutoff = 0.1f; b.twRes = 1.0f; b.twEnv = 0.0f; b.twKey = 1.0f;
+            const auto ra = render (a), rb = render (b);
+            double worst = 0.0;
+            for (size_t i = 0; i < ra.size(); ++i) worst = std::max (worst, std::abs (static_cast<double> (ra[i]) - rb[i]));
+            logMessage ("  SG style, 3rd Wave controls moved: largest sample difference " + juce::String (worst, 9));
+            expectLessThan (worst, 1.0e-9, "SATURATION and the state-variable filter are out of the SG path");
+
+            // 3W style: the Super Gemini's DRIVE and HPF must do nothing
+            auto c = patch (sg::VcfStyle::ThirdWave);
+            auto d = c; d.drive = sg::Drive::Two; d.hpf = 0.8f;
+            d.lpf = 0.1f; d.res = 0.95f; d.vcfEnvAmt = 1.0f;
+            d.vcfKeytrack = sg::Tri::On; d.envSource = sg::EnvSource::Both;
+            d.vcfLfo1Amt = 1.0f; d.vcfDds2Amt = 1.0f;
+            const auto rc = render (c), rd = render (d);
+            double worst2 = 0.0;
+            for (size_t i = 0; i < rc.size(); ++i) worst2 = std::max (worst2, std::abs (static_cast<double> (rc[i]) - rd[i]));
+            logMessage ("  3W style, DRIVE and HPF moved: largest sample difference " + juce::String (worst2, 9));
+            expectLessThan (worst2, 1.0e-9, "DRIVE and the HPF are out of the 3rd Wave path");
+        }
+    }
+};
+
+class ThirdWaveFilterTests final : public juce::UnitTest
+{
+public:
+    ThirdWaveFilterTests() : juce::UnitTest ("3rd Wave filter style", "filter") {}
+
+    // level of a 100 Hz tone through a filter, well below any cutoff setting used here
+    static double bassLevel (std::function<float (float)> process, double hz = 100.0)
+    {
+        double sum = 0.0;
+        const int n = static_cast<int> (sgt::kFs);
+        for (int i = 0; i < n; ++i)
+        {
+            const float x = 0.3f * std::sin (kTwoPi * static_cast<float> (hz) * i / sgt::kFs);
+            const float y = process (x);
+            if (i > n / 2) sum += static_cast<double> (y) * y;
+        }
+        return std::sqrt (sum / (n / 2));
+    }
+
+    void runTest() override
+    {
+        beginTest ("3W output stays finite across cutoff, resonance, saturation and sample rates");
+        for (float rate : { 44100.0f, 48000.0f, 96000.0f })
+            for (float cutoff : { 20.0f, 1000.0f, 18000.0f })
+                for (bool compensation : { false, true })
+                {
+                    CurtisFilter filter;
+                    filter.setCutoff (cutoff, rate);
+                    filter.setResonance (1.0f, compensation);
+                    filter.setSaturation (1.0f);
+                    bool bounded = true;
+                    for (int i = 0; i < 12000; ++i)
+                    {
+                        const float y = filter.process (i < 6000 ? 0.8f * std::sin (kTwoPi * 220.0f * i / rate) : 0.0f);
+                        bounded = bounded && std::isfinite (y) && std::abs (y) < 2.0f;
+                    }
+                    expect (bounded);
+                }
+        beginTest ("Resonance compensation preserves bass [3rd Wave v1.9 p.57]");
+        {
+            auto sgBass = [] (float res)
+            {
+                SsiLadder f; f.reset(); f.setCutoff (1000.0f, sgt::kFs); f.setResonance (res, Drive::Off);
+                return bassLevel ([&f] (float x) { return f.process (x); });
+            };
+            auto twBass = [] (float res)
+            {
+                CurtisFilter f; f.reset(); f.setCutoff (1000.0f, sgt::kFs); f.setResonance (res); f.setSaturation (0.0f);
+                return bassLevel ([&f] (float x) { return f.process (x); });
+            };
+            const double sgLoss = sgBass (0.9) / sgBass (0.0), twLoss = twBass (0.9) / twBass (0.0);
+            logMessage ("  bass at resonance 0.9 vs 0: SG " + juce::String (sgLoss, 3) + "  3W " + juce::String (twLoss, 3));
+            expectLessThan (sgLoss, 0.8, "the Super Gemini ladder thins out, as a 24 dB/oct filter does");
+            expectGreaterThan (twLoss, 0.85, "3W compensates, so the low end stays");
+        }
+
+        beginTest ("SATURATION raises level into output distortion [3rd Wave v1.9 p.24]");
+        {
+            auto run = [] (float sat, double& rms, double& thd)
+            {
+                CurtisFilter f; f.reset(); f.setCutoff (18000.0f, sgt::kFs); f.setResonance (0.0f); f.setSaturation (sat);
+                std::vector<float> out (static_cast<size_t> (sgt::kFs));
+                for (size_t i = 0; i < out.size(); ++i)
+                    out[i] = f.process (0.5f * std::sin (kTwoPi * 220.0f * static_cast<float> (i) / sgt::kFs));
+                double sum = 0.0;
+                for (size_t i = out.size() / 2; i < out.size(); ++i) sum += static_cast<double> (out[i]) * out[i];
+                rms = std::sqrt (sum / (out.size() / 2));
+                auto spec = sgt::spectrum (out, static_cast<int> (out.size() / 2), 14, sgt::kFs);
+                const float f1 = spec.magAt (220.0), h3 = spec.magAt (660.0), h5 = spec.magAt (1100.0);
+                thd = (h3 + h5) / std::max (1.0e-9f, f1);
+            };
+            double rms0 = 0.0, thd0 = 0.0, rms1 = 0.0, thd1 = 0.0;
+            run (0.0f, rms0, thd0);
+            run (1.0f, rms1, thd1);
+            const double db = 20.0 * std::log10 (rms1 / rms0);
+            logMessage ("  saturation 0 -> 1: level " + juce::String (db, 2) + " dB, harmonics "
+                        + juce::String (thd0, 4) + " -> " + juce::String (thd1, 4));
+            expectGreaterThan (thd1, thd0 * 20.0, "saturation adds harmonic distortion");
+            expectGreaterThan (db, 3.0, "output saturation must not be automatically level compensated");
+            double rmsMid = 0.0, thdMid = 0.0;
+            run (0.2f, rmsMid, thdMid);
+            expectGreaterThan (rmsMid, rms0, "initial saturation travel raises volume");
+        }
+
+        beginTest ("State-variable filter: low-pass / notch / high-pass, and no self-oscillation");
+        {
+            auto level = [] (float mode, bool band, double hz)
+            {
+                StateVariable f; f.reset(); f.setCutoff (1000.0f, sgt::kFs); f.setResonance (0.5f); f.setMode (mode, band);
+                double sum = 0.0;
+                const int n = static_cast<int> (sgt::kFs);
+                for (int i = 0; i < n; ++i)
+                {
+                    const float y = f.process (0.3f * std::sin (kTwoPi * static_cast<float> (hz) * i / sgt::kFs));
+                    if (i > n / 2) sum += static_cast<double> (y) * y;
+                }
+                return std::sqrt (sum / (n / 2));
+            };
+            const double lpLow = level (0.0f, false, 100.0), lpHigh = level (0.0f, false, 8000.0);
+            const double hpLow = level (1.0f, false, 100.0), hpHigh = level (1.0f, false, 8000.0);
+            const double notchAt = level (0.5f, false, 1000.0), notchLow = level (0.5f, false, 100.0);
+            const double bpAt = level (0.0f, true, 1000.0), bpLow = level (0.0f, true, 100.0);
+            logMessage ("  LP 100/8k " + juce::String (lpLow, 3) + "/" + juce::String (lpHigh, 4)
+                        + "   HP " + juce::String (hpLow, 4) + "/" + juce::String (hpHigh, 3)
+                        + "   notch 1k/100 " + juce::String (notchAt, 4) + "/" + juce::String (notchLow, 3)
+                        + "   BP 1k/100 " + juce::String (bpAt, 3) + "/" + juce::String (bpLow, 4));
+            expectGreaterThan (lpLow, lpHigh * 10.0, "low-pass passes the low tone");
+            expectGreaterThan (hpHigh, hpLow * 10.0, "high-pass passes the high tone");
+            expectLessThan (notchAt, notchLow * 0.5, "notch cuts at the cutoff");
+            expectGreaterThan (bpAt, bpLow * 5.0, "band pass favours the cutoff");
+
+            // resonance must not run away: the filter cannot self-oscillate [3rd Wave p.53]
+            StateVariable osc; osc.reset(); osc.setCutoff (1000.0f, sgt::kFs); osc.setResonance (1.0f); osc.setMode (0.0f, false);
+            float peak = 0.0f;
+            for (int i = 0; i < 48000; ++i)
+            {
+                const float x = i < 64 ? 1.0f : 0.0f;     // a single impulse, then silence
+                peak = std::max (peak, std::abs (osc.process (x)));
+            }
+            float tail = 0.0f;
+            for (int i = 0; i < 4800; ++i) tail = std::max (tail, std::abs (osc.process (0.0f)));
+            logMessage ("  max resonance: peak " + juce::String (peak, 3) + ", tail after 1 s " + juce::String (tail, 6));
+            expectLessThan (tail, 0.01f, "rings out instead of self-oscillating");
+        }
+    }
+};
+
 class LadderTests final : public juce::UnitTest
 {
 public:
@@ -260,6 +515,8 @@ public:
     }
 };
 
+static FilterEngineTests filterEngineTests;
+static ThirdWaveFilterTests thirdWaveFilterTests;
 static LadderTests ladderTests;
 static HpfTests hpfTests;
 static KeytrackTests keytrackTests;

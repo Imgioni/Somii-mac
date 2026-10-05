@@ -23,6 +23,10 @@ void Voice::prepare (float hostRate, int oversampling, uint32_t seed, bool analo
     tolPitchCents = analog ? 1.5f * rng.bipolar() : 0.0f;
     tolCutOct     = analog ? 0.03f * rng.bipolar() : 0.0f;
     tolEnv        = analog ? 1.0f + 0.03f * rng.bipolar() : 1.0f;
+    // Each voice card carries its own LFO 2 [p.72]: its own starting phase, and its own rate.
+    tolLfo2       = analog ? 1.0f + 0.025f * rng.bipolar() : 1.0f;
+    lfo2Seed      = seed * 2246822519u + 374761393u;
+    lfo2Phase     = rng.unipolar();
     reset();
 }
 
@@ -34,13 +38,15 @@ void Voice::reset()
     dds1.reset();
     hpf.reset();
     lpf.reset();
+    lpf3w.reset();
+    svf.reset();
     dds2Prev = 0.0f;
     lastVcaEnv = 0.0f;
     hasPlayed = false;
     modSum.fill (0.0f);
 }
 
-void Voice::start (int n, float vel, float uni, bool declick, bool glide)
+void Voice::start (int n, float vel, float uni, bool declick, float glide)
 {
     if (stealing)
     {
@@ -59,7 +65,7 @@ void Voice::start (int n, float vel, float uni, bool declick, bool glide)
     begin (n, vel, uni, glide, false);
 }
 
-void Voice::begin (int n, float vel, float uni, bool glide, bool resetEnvelopes)
+void Voice::begin (int n, float vel, float uni, float glide, bool resetEnvelopes)
 {
     if (resetEnvelopes) { env1.kill(); env2.kill(); envFixed.kill(); }
 
@@ -71,10 +77,11 @@ void Voice::begin (int n, float vel, float uni, bool glide, bool resetEnvelopes)
     controlCountdown = 0;       // full control update on the first sample
     cutoffPrimed = false;       // jump (don't glide) to the new note's cutoff
     polyAT = 0.0f;
-    lfo2Offset = 0.0;           // back in phase with the layer's LFO 2
 
     pitchTarget = static_cast<float> (n) + uni;
-    if (! (glide && hasPlayed)) pitchNow = pitchTarget;   // portamento glides from this voice's last pitch
+    // portamento: from the layer's last played note (poly), from this voice's own pitch (mono), or not at all
+    if (glide >= 0.0f) pitchNow = glide + uni;
+    else if (! (glide == kGlideOwn && hasPlayed)) pitchNow = pitchTarget;
     hasPlayed = true;
 
     dds1.noteOn (superHalf);    // SUPER ½ resets DDS 1 phase [p.61]
@@ -136,15 +143,32 @@ void Voice::setupBlock (const LayerControl& c, float blockSeconds) noexcept
     envFixed.setParams (0.0f, 0.0005f, 0.0f, 0.001f, 1.0f,
                         c.vcaEnv == VcaEnv::GateRelease ? e2R * tEnv : 0.001f, false);
 
-    lpf.setResonance (r.has (MDest::Res) ? eff (c, MDest::Res, P.res) : c.res, c.drive);
+    const float resNow = r.has (MDest::Res) ? eff (c, MDest::Res, c.res) : c.res;
+    lpf.setResonance (resNow, c.drive);
+    lpf3w.setResonance (resNow, c.twComp);
+    lpf3w.setSaturation (c.vcfSat);
+    svf.setResonance (c.svfRes);
+    svf.setMode (c.svfModeMix, c.svfBand);
+    svf.setCutoff (c.svfHz, osFs);
     hpf.setCutoff (r.has (MDest::Hpf) ? taper::hpfHz (eff (c, MDest::Hpf, P.hpf)) : c.hpfHz, osFs);
 
     superHalf = c.superMode == Tri::Half;
+    const bool wasThirdWave = thirdWave;
+    thirdWave = c.vcfStyle == VcfStyle::ThirdWave;
+    if (thirdWave != wasThirdWave)
+    {
+        // the engine that is now idle keeps nothing: no stale states, no tail from the old filter
+        if (thirdWave) { lpf.reset(); hpf.reset(); }
+        else           { lpf3w.reset(); svf.reset(); }
+        cutoffPrimed = false;
+    }
+    svfOn = c.svfOn && thirdWave;      // the state-variable filter belongs to the 3rd Wave engine
     dds1.setShape (c.dds1Wave, c.altA, c.altB);
     // A voice is scaled by kOutputGain (-12 dB) for polyphonic headroom; a CUSTOM sample gets that
     // back after the filter, like any sampler: a 0 dBFS file plays at 0 dBFS (VCA LEVEL 0 dB, one note).
     sampleBoost = c.sample != nullptr ? 1.0f / kOutputGain : 1.0f;
     dds1.setSample (c.sample, P.smpLoop, P.smpStart, P.smpEnd, P.smpLoopStart, P.smpLevel, P.smpRoot, P.smpFine, sampleCh);
+    dds1.setSlice (P.smpSlice, P.smpSlices, P.smpSense, note);
     dds1.setSuper (c.superMode, r.has (MDest::PwDetune) ? eff (c, MDest::PwDetune, P.pwDetune) : c.detune, mirrored);
 
     dds2Audio = ! c.dds2IsLfo;
@@ -184,7 +208,7 @@ float Voice::control (const LayerControl& c, const LayerMods& m, int sampleInBlo
         {
             stealing = false;
             stealGain = 1.0f;
-            begin (pending.note, pending.velocity, pending.unison, pending.glide, true);
+            begin (pending.note, pending.velocity, pending.unison, pending.glideFrom, true);
         }
     }
 
@@ -231,12 +255,10 @@ void Voice::fullUpdate (const LayerControl& c, const LayerMods& m, int sampleInB
     // ── LFO 2, per voice [pp.70–72] ──
     const float atVoice = std::max (m.channelAT, polyAT);
     const float driver = std::max (m.push, atVoice);
-    const float globalHz = m.lfo2Inc * hostFs;
     float lfo2Hz = r.has (MDest::Lfo2Rate) ? taper::lfoLowHz (eff (c, MDest::Lfo2Rate, P.lfo2Rate)) : c.lfo2Hz;
     lfo2Hz *= fastExp2 (c.lfo2RateModOct * driver);          // LFO2 RATE fader: push / AT speed it up
-    lfo2Offset += static_cast<double> ((lfo2Hz - globalHz) * dt);
-    const double lfo2Phase = m.lfo2Phase + static_cast<double> (m.lfo2Inc) * sampleInBlock + lfo2Offset;
-    const float lfo2Raw = lfo2Shape (c.lfo2Wave, lfo2Phase, rng);
+    lfo2Phase += static_cast<double> (lfo2Hz * tolLfo2 * dt);   // this voice's own LFO, free-running
+    const float lfo2Raw = lfo2Shape (c.lfo2Wave, lfo2Phase, rng, lfo2Seed);
     float depth2 = m.push;                                                   // TRIG: bender push
     if (c.lfo2Trigger == Lfo2Trigger::AtTrig) depth2 = driver;              // AT + TRIG: whichever is greater
     else if (c.lfo2Trigger == Lfo2Trigger::On) depth2 = 1.0f;              // permanently on
@@ -327,7 +349,7 @@ void Voice::fullUpdate (const LayerControl& c, const LayerMods& m, int sampleInB
         hfInc = clampf (rate * track / osFs, 0.0f, 0.45f);
     }
     vcaLfoDepthEff = r.has (MDest::VcaLfo1Amt) ? eff (c, MDest::VcaLfo1Amt, P.vcaLfo1Amt) : c.vcaLfoDepth;
-    const float vcfLfoOct = r.has (MDest::VcfLfo1Amt) ? taper::vcfLfoOctaves (eff (c, MDest::VcfLfo1Amt, P.vcfLfo1Amt)) : c.vcfLfoOct;
+    const float vcfLfoOct = r.has (MDest::VcfLfo1Amt) ? taper::vcfLfoOctaves (eff (c, MDest::VcfLfo1Amt, thirdWave ? 0.0f : P.vcfLfo1Amt)) : c.vcfLfoOct;
     hfInject1 = (hf && c.lfo1Mode == Lfo1Mode::OnceDds1) ? 1.0f : 0.0f;
     hfInject2 = (hf && c.lfo1Mode == Lfo1Mode::ResetDds2) ? 1.0f : 0.0f;
     hfPitch1Oct = (hfMod && to1) ? pitchLfoSemis / 12.0f * lg : 0.0f;
@@ -341,26 +363,32 @@ void Voice::fullUpdate (const LayerControl& c, const LayerMods& m, int sampleInB
     if (c.envSource == EnvSource::Env2)      envSel = e2;
     else if (c.envSource == EnvSource::Both) envSel = 0.5f * (e1s + e2);
 
-    const float lpfFader = r.has (MDest::LpfCutoff) ? eff (c, MDest::LpfCutoff, P.lpf) : c.lpfFader;
-    const float envOct = r.has (MDest::VcfEnvAmt) ? taper::vcfEnvOctaves (eff (c, MDest::VcfEnvAmt, P.vcfEnvAmt)) : c.vcfEnvOct;
+    const float lpfFader = r.has (MDest::LpfCutoff) ? eff (c, MDest::LpfCutoff, c.lpfFader) : c.lpfFader;
+    const float envOct = r.has (MDest::VcfEnvAmt)
+        ? (thirdWave ? 10.0f * (2.0f * eff (c, MDest::VcfEnvAmt, P.twEnv) - 1.0f)
+                     : taper::vcfEnvOctaves (eff (c, MDest::VcfEnvAmt, P.vcfEnvAmt))) : c.vcfEnvOct;
+    if (thirdWave && svfOn)
+        svf.setCutoff (c.svfHz * fastExp2 (c.svfEnvOct * e1s + c.svfVelOct * (velocity - 1.0f)
+                                       + c.svfKeyK * (keyPitch - 60.0f) / 12.0f), osFs);
     cutOctBase = lpfFader * c.lpfOctaves
                + c.keytrackK * (keyPitch - 60.0f) / 12.0f              // [p.43]
                + envOct * envSel
                + vcfLfoOct * lv
                + bendAmt * c.benderVcfOct                              // bender VCF [p.69]
                + lfo2Out * c.lfo2VcfOct                                // LFO 2 VCF [p.71]
-               + c.dynamicsK * (velocity - 1.0f) * 3.0f                // DYNAMICS → brightness [p.45]
+               + (thirdWave ? 0.0f : c.dynamicsK * (velocity - 1.0f) * 3.0f)                // DYNAMICS → brightness [p.45]
+               + c.vcfVelOct * (velocity - 1.0f)                       // 3rd Wave VELOCITY knob
                + tolCutOct + taper::driftOctaves (c.drift) * clampf (driftCut, -2.0f, 2.0f);
-    dds2CutOct = r.has (MDest::VcfDds2Amt) ? taper::vcfDds2Octaves (eff (c, MDest::VcfDds2Amt, P.vcfDds2Amt)) : c.vcfDds2Oct;
+    dds2CutOct = r.has (MDest::VcfDds2Amt) ? taper::vcfDds2Octaves (eff (c, MDest::VcfDds2Amt, thirdWave ? 0.0f : P.vcfDds2Amt)) : c.vcfDds2Oct;
     cutAudioRate = dds2CutOct > 0.0f || hfCutOct > 0.0f;
     if (! cutAudioRate)
     {
         const float hz = 20.0f * fastExp2 (cutOctBase);
-        if (cutoffPrimed) lpf.rampCutoff (hz, osFs, kControlDivider);
-        else            { lpf.setCutoff (hz, osFs); cutoffPrimed = true; }
+        if (cutoffPrimed) { lpf.rampCutoff (hz, osFs, kControlDivider); lpf3w.rampCutoff (hz, osFs, kControlDivider); }
+        else            { lpf.setCutoff (hz, osFs); lpf3w.setCutoff (hz, osFs); cutoffPrimed = true; }
     }
     if (r.has (MDest::Hpf)) hpf.setCutoff (taper::hpfHz (eff (c, MDest::Hpf, P.hpf)), osFs);
-    if (r.has (MDest::Res)) lpf.setResonance (eff (c, MDest::Res, P.res), c.drive);
+    if (r.has (MDest::Res)) { const float rr = eff (c, MDest::Res, c.res); lpf.setResonance (rr, c.drive); lpf3w.setResonance (rr, c.twComp); }
 
     // ── VCA amounts used every sample ──
     vcaGainEff = r.has (MDest::VcaEnvLevel) ? taper::levelGain (eff (c, MDest::VcaEnvLevel, P.vcaLevel)) : c.vcaGain;
@@ -401,10 +429,23 @@ SG_INLINE float Voice::renderSample (float gainBase) noexcept
     ch2 += hfInject2 * hf;
 
     float x = ch1 + mix * (ch2 - ch1);            // MIX [p.40]
-    x = hpf.process (x);
     if (cutAudioRate)
-        lpf.setCutoff (20.0f * fastExp2 (cutOctBase + dds2CutOct * d2 + hfCutOct * hf), osFs);
-    x = lpf.process (x);
+    {
+        const float hz = 20.0f * fastExp2 (cutOctBase + dds2CutOct * d2 + hfCutOct * hf);
+        if (thirdWave) lpf3w.setCutoff (hz, osFs); else lpf.setCutoff (hz, osFs);
+    }
+    if (thirdWave)
+    {
+        // 3rd Wave: the state-variable filter feeds the Curtis low-pass [its manual p.53].
+        // The Super Gemini's HPF and DRIVE are not part of this engine and stay out of the path.
+        if (svfOn) x = svf.process (x);
+        x = lpf3w.process (x);
+    }
+    else
+    {
+        x = hpf.process (x);
+        x = lpf.process (x);
+    }
 
     float g = gainBase;
     if (amDepth > 0.0f)     g *= 1.0f - amDepth * 0.5f * (1.0f - d2);      // VCA DDS 2 [p.45]
@@ -416,7 +457,7 @@ void Voice::render (float* out, int n, int os, const float* gains) noexcept
 {
     for (int j = 0; j < n; ++j)
     {
-        lpf.advanceRamp();   // control-rate cutoff, interpolated per host sample
+        if (thirdWave) lpf3w.advanceRamp(); else lpf.advanceRamp();   // only the live engine
         for (int k = 0; k < os; ++k)
             out[j * os + k] = renderSample (gains[j]);
     }
@@ -434,8 +475,8 @@ void Voice::processPair (Voice& a, Voice& b, const LayerControl& c, const LayerM
     }
     for (int j = 0; j < n; ++j)
     {
-        a.lpf.advanceRamp();
-        b.lpf.advanceRamp();
+        if (a.thirdWave) a.lpf3w.advanceRamp(); else a.lpf.advanceRamp();
+        if (b.thirdWave) b.lpf3w.advanceRamp(); else b.lpf.advanceRamp();
         for (int k = 0; k < os; ++k)
         {
             outA[j * os + k] = a.renderSample (gA[j]);

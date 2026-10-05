@@ -77,6 +77,11 @@ public:
     void fromTree (const juce::ValueTree& t);
 
     float getVis (int slot, int i) const noexcept;
+    // message thread: the slot's wet output as kBands log-spaced levels in dB (20 Hz - 20 kHz),
+    // and its peak level; all -90 dB / 0 once the slot has gone quiet or idle
+    static constexpr int kBands = 48;
+    void spectrum (int slot, float* out) const;
+    float outputLevel (int slot) const noexcept;
     int getImpulseVersion() const noexcept { return irVersion; }   // message thread
 
 private:
@@ -111,6 +116,11 @@ private:
     void makeDefaultImpulse();
 
     std::array<Slot, kSlots> slots;
+    // each slot's wet output (the layer the display follows), audio -> message, for the analyser
+    static constexpr int kScopeOrder = 11, kScope = 1 << kScopeOrder;
+    struct Scope { std::array<std::atomic<float>, kScope> buf {}; std::atomic<int> pos { 0 }; std::atomic<float> peak { 0.0f }; };
+    std::array<Scope, kSlots> scopes;
+    mutable std::array<int, kSlots> seenPos {}, stale {};
     std::atomic<float>* mode {};
     double fs = 48000.0;
     int maxBlock = 512;

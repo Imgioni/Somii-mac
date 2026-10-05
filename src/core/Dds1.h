@@ -31,6 +31,14 @@ public:
     void setSuper (Tri superMode, float detuneAmount, bool mirrored) noexcept;
     // CUSTOM (SPKR): a user sample replaces the waveform while s != nullptr. Per control block.
     // root = the key that plays it at its own pitch; ch: 0 left, 1 right, 2 mono sum.
+    // Where the first oscillator's play head is in the sample (0..1), or -1 with no sample / past the end.
+    float samplePlayhead() const noexcept
+    {
+        if (smp == nullptr || smp->frames < 1 || smpRestart || spos[0] >= smpHi) return -1.0f;
+        return static_cast<float> (spos[0] / smp->frames);
+    }
+    // SLICE: after setSample, narrows the region to this key's slice (see Dds1.cpp)
+    void setSlice (bool on, int slices, float sense, int note) noexcept;
     void setSample (const Sample* s, bool loop, float start, float end, float loopStart, float level,
                     int root, float fineCents, int ch) noexcept;
     // Per host sample: centroid increment (cycles per OS sample) and morph position m ∈ [0,1].
@@ -71,6 +79,8 @@ private:
     float smpGain = 1.0f;
     double smpXf = 1.0;                       // loop crossfade / one-shot fade-out, frames
     float smpScale = 1.0f;                    // sample frames per centroid cycle
+    int smpRoot = 60;
+    float smpFineCents = 0.0f;
     std::array<double, kOscCount> spos {};    // play heads, one per oscillator
     float morph = 0.0f;
     BlepDelay delay;

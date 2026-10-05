@@ -18,6 +18,7 @@ SuperGeminiProcessor::SuperGeminiProcessor()
     router.bind (apvts);
     fxRack.bind (apvts);
     ribbonParam = apvts.getRawParameterValue ("perf.ribbon");
+    apvts.state.setProperty ("envCurve", 2, nullptr);   // every state saved from here on uses the gentle envelope curve
     startTimerHz (30);
 }
 
@@ -251,6 +252,7 @@ bool SuperGeminiProcessor::loadCustomSample (int layer, const void* data, size_t
             std::copy (src, src + len, dst.begin());
             dst.back() = dst[static_cast<size_t> (len) - 1];                     // guard frame
         }
+        s->findOnsets();   // for SLICE
         cs.file.replaceAll (data, size);
         cs.name = name.isNotEmpty() ? name : juce::String ("SAMPLE");
     }
@@ -475,6 +477,49 @@ void SuperGeminiProcessor::setStateInformation (const void* data, int sizeInByte
         if (xml->hasTagName (apvts.state.getType()))
         {
             auto tree = juce::ValueTree::fromXml (*xml);
+            // Older patches shared the two panels' controls. Seed the new bank once on load;
+            // subsequent edits and saves have independent IDs. Never inherit a previous patch.
+            for (const auto* layer : { "upper", "lower" })
+            {
+                const juce::String prefix = juce::String (layer) + ".";
+                auto oldValue = [&] (const char* id, float fallback)
+                {
+                    const auto node = tree.getChildWithProperty ("id", prefix + id);
+                    return node.isValid() ? static_cast<float> (node.getProperty ("value")) : fallback;
+                };
+                auto seed = [&] (const char* id, float value)
+                {
+                    if (tree.getChildWithProperty ("id", prefix + id).isValid()) return;
+                    juce::ValueTree node ("PARAM");
+                    node.setProperty ("id", prefix + id, nullptr);
+                    node.setProperty ("value", value, nullptr);
+                    tree.appendChild (node, nullptr);
+                };
+                seed ("tw.cutoff", oldValue ("vcf.lpf", 1.0f));
+                seed ("tw.res", oldValue ("vcf.res", 0.0f));
+                seed ("tw.envAmt", 0.5f + 0.5f * oldValue ("vcf.envAmt", 0.0f));
+                seed ("tw.keytrack", 0.25f * oldValue ("vcf.keytrack", 0.0f));
+                seed ("tw.resComp", 1.0f);
+                seed ("svf.envAmt", 0.5f);
+                seed ("svf.velocity", 0.0f);
+                seed ("svf.keytrack", 0.0f);
+            }
+            // Envelope times moved from 1 ms·10^(4x) to 10 s·x² (2026-10-05). A state saved before carries no
+            // envCurve 2: its faders move to the positions that give the same times, so old sounds are unchanged.
+            if (static_cast<int> (tree.getProperty ("envCurve", 1)) < 2)
+            {
+                for (const auto* layer : { "upper", "lower" })
+                    for (const auto* id : { "env1.attackHold", "env1.attack", "env1.decayHold", "env1.decay", "env1.release",
+                                            "env2.attack", "env2.decayHold", "env2.decay", "env2.release" })
+                    {
+                        auto node = tree.getChildWithProperty ("id", juce::String (layer) + "." + id);
+                        if (! node.isValid()) continue;
+                        const float x = static_cast<float> (node.getProperty ("value"));
+                        const bool hold = juce::String (id).contains ("Hold");
+                        node.setProperty ("value", hold && x <= 0.0f ? 0.0f : sg::taper::envPosition (0.001f * std::pow (10.0f, 4.0f * juce::jlimit (0.0f, 1.0f, x))), nullptr);
+                    }
+                tree.setProperty ("envCurve", 2, nullptr);
+            }
             const auto seqs = tree.getChildWithName ("SEQUENCES");
             if (seqs.isValid())
             {

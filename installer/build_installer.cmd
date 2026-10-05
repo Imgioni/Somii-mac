@@ -4,6 +4,9 @@ rem and a matching .zip for people who would rather not run an installer.
 setlocal
 cd /d "%~dp0.."
 
+echo == checking the web UI parses ==
+node tests\UiSyntaxTests.mjs || exit /b 1
+
 echo == building the plugin ==
 call scripts\build.cmd --target Geminus_VST3 Geminus_CLAP Geminus_Standalone || exit /b 1
 

@@ -8,8 +8,11 @@
 namespace sg::taper
 {
 
-// ENV A / D / R: 1 ms … 10 s [manual pp.47–53]
-inline float envTime (float x) noexcept    { return 0.001f * std::pow (10.0f, 4.0f * clampf (x, 0.0f, 1.0f)); }
+// ENV A / D / R: 1 ms … 10 s [manual pp.47–53]. A gentle curve, time = 10 s × position² (user,
+// 2026-10-05: the old 1 ms·10^(4x) put half the fader under 0.1 s and the top quarter from 1 s to 10 s).
+// 25 % ≈ 0.6 s, 50 % = 2.5 s, 75 % ≈ 5.6 s. Older states are converted on load (PluginProcessor, envCurve).
+inline float envTime (float x) noexcept    { const float c = clampf (x, 0.0f, 1.0f); return std::max (0.001f, 10.0f * c * c); }
+inline float envPosition (float seconds) noexcept { return std::sqrt (clampf (seconds, 0.0f, 10.0f) / 10.0f); }
 // ENV AH / DH: 0 (no effect) … 10 s [p.47]
 inline float holdTime (float x) noexcept   { return x <= 0.0f ? 0.0f : envTime (x); }
 // LFO 1 / LFO 2 low-frequency rate: 0.05 … 50 Hz [pp.54, 70]

@@ -132,6 +132,22 @@ public:
             else         expect (lo >= 0.0f && hi > 0.9f, "unipolar");
         }
 
+        beginTest ("S&H steps are rounded, not hard edges (user, 2026-10-05)");
+        {
+            Lfo1 lfo; lfo.prepare (kHost, 3);
+            lfo.setShape (Lfo1Wave::SampleHold, Lfo1Mode::FreeNorm, false);
+            lfo.setRate (2.0f);
+            float prev = 0.0f, worst = 0.0f, lo = 1.0f, hi = -1.0f;
+            for (int i = 0; i < 48000 * 4; ++i)
+            {
+                lfo.tick(); const float v = lfo.value (0.0f);
+                if (i) worst = std::max (worst, std::abs (v - prev));
+                prev = v; lo = std::min (lo, v); hi = std::max (hi, v);
+            }
+            expect (worst < 0.002f, "no sample-to-sample jump: " + juce::String (worst));
+            expect (hi - lo > 0.8f, "still random steps");
+        }
+
         beginTest ("ONCE runs a single cycle [p.59]");
         {
             Lfo1 lfo; lfo.prepare (kHost, 1);
@@ -164,6 +180,95 @@ public:
             for (int i = 0; i < 48000; ++i) { lfo.tick(); worst = std::max (worst, std::abs (lfo.value (0.0f) + lfo.value (0.5f))); }
             expectLessThan (worst, 1.0e-4f);
         }
+    }
+};
+
+class Lfo1PhaseModeTests final : public juce::UnitTest
+{
+public:
+    Lfo1PhaseModeTests() : juce::UnitTest ("LFO 1 phase MODE 1 / MODE 2", "mod") {}
+
+    void runTest() override
+    {
+        beginTest ("MODE 2 lets each voice run its own LFO 1, so a chord stops pulsing as one");
+        // Full LFO 1 tremolo on a four-note chord. MODE 1: every voice dips together, so the sum
+        // swings hard. MODE 2: the voices are spread over the cycle and the dips fill each other in.
+        auto ripple = [] (sg::Lfo1Phase mode)
+        {
+            sg::LayerParams p;
+            p.lfo1PhaseMode = mode;
+            p.lfo1Wave = sg::Lfo1Wave::Triangle;
+            p.lfo1Rate = 0.5f;            // a few Hz
+            p.vcaLfo1Amt = 1.0f;          // full depth
+            p.e2Release = 0.0398f;   // 16 ms
+            sg::LayerEngine e; sgt::prepareEngine (e, p);
+            std::vector<float> l (static_cast<size_t> (sgt::kFs * 2.0)), r (l.size());
+            for (int n : { 60, 64, 67, 71 }) e.noteOn (n, 0.8f);
+            e.process (l.data(), r.data(), static_cast<int> (l.size()));
+            // envelope of the sum in 25 ms windows, after the attack
+            const int win = static_cast<int> (sgt::kFs * 0.025);
+            double lo = 1.0e9, hi = 0.0;
+            for (size_t a0 = static_cast<size_t> (sgt::kFs * 0.4); a0 + win < l.size(); a0 += win)
+            {
+                double sum = 0.0;
+                for (int i = 0; i < win; ++i) { const double m = l[a0 + i] + r[a0 + i]; sum += m * m; }
+                const double rms = std::sqrt (sum / win);
+                lo = std::min (lo, rms); hi = std::max (hi, rms);
+            }
+            return (hi - lo) / std::max (hi, 1.0e-9);     // 1 = silent at the trough, 0 = steady
+        };
+        const double locked = ripple (sg::Lfo1Phase::Locked), perVoice = ripple (sg::Lfo1Phase::PerVoice);
+        logMessage ("  chord tremolo depth: MODE 1 " + juce::String (locked, 3) + "  MODE 2 " + juce::String (perVoice, 3));
+        expectGreaterThan (locked, 0.5, "MODE 1: the whole chord dips together");
+        expectLessThan (perVoice, locked * 0.6, "MODE 2: the voices fill each other in");
+    }
+};
+
+class Lfo2Tests final : public juce::UnitTest
+{
+public:
+    Lfo2Tests() : juce::UnitTest ("LFO 2 per-voice behaviour", "mod") {}
+
+    // LFO 2 ON, S&H, with a modulation depth up. Analog tolerance is off and DRIFT is 0, so the
+    // only thing that can make the two binaural voices differ is LFO 2 itself [p.72].
+    static sg::LayerParams lfo2Patch (float vca, float vcf, float dds)
+    {
+        sg::LayerParams p;
+        p.e2Release = 0.0398f;   // 16 ms
+        p.lfo2Trigger = sg::Lfo2Trigger::On;      // permanently on, no bender push needed
+        p.lfo2Wave = sg::Lfo2Wave::SampleHold;
+        p.lfo2Rate = 0.75f;
+        p.lfo2Vca = vca; p.lfo2Vcf = vcf; p.lfo2Dds = dds;
+        p.binaural = true;
+        return p;
+    }
+    static double sideDifference (const sgt::Stereo& s)
+    {
+        double d = 0.0, e = 0.0;
+        for (size_t i = 4800; i < s.l.size(); ++i) { const double m = s.l[i] - s.r[i]; d += m * m; e += s.l[i] * s.l[i]; }
+        return std::sqrt (d / std::max (1.0, e));
+    }
+
+    void runTest() override
+    {
+        beginTest ("S&H moves the two binaural voices differently: stereo, not mono [p.72]");
+        {
+            sg::LayerEngine flat; sgt::prepareEngine (flat, lfo2Patch (0.0f, 0.0f, 0.0f));
+            const double none = sideDifference (sgt::renderNote (flat, 60, 1.0f, 2.0));
+            for (auto d : { std::make_pair ("VCA", lfo2Patch (1.0f, 0.0f, 0.0f)),
+                            std::make_pair ("VCF", lfo2Patch (0.0f, 1.0f, 0.0f)),
+                            std::make_pair ("DDS", lfo2Patch (0.0f, 0.0f, 0.5f)) })
+            {
+                auto p = d.second; p.lpf = 0.6f;
+                sg::LayerEngine e; sgt::prepareEngine (e, p);
+                const double diff = sideDifference (sgt::renderNote (e, 60, 1.0f, 2.0));
+                logMessage (juce::String (d.first) + " depth: L/R difference " + juce::String (diff, 3)
+                            + " (no depth: " + juce::String (none, 4) + ")");
+                expectGreaterThan (diff, 0.1, juce::String (d.first) + " depth moves the sides apart");
+            }
+            expectLessThan (none, 1.0e-6, "with every depth at zero the sides are identical");
+        }
+
     }
 };
 
@@ -249,4 +354,6 @@ public:
 
 static EnvelopeTests envelopeTests;
 static Lfo1Tests lfo1Tests;
+static Lfo1PhaseModeTests lfo1PhaseModeTests;
+static Lfo2Tests lfo2Tests;
 static DdsModTests ddsModTests;

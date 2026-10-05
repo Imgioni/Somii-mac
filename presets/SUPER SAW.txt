@@ -1,0 +1,16 @@
+# SUPER SAW (2026-10-05): matched to the user's reference recording with SGRender + compare.cjs
+upper.dds1.wave 0.2        # SAW
+upper.dds1.range 0.6       # 8'
+upper.ddsMod.super 1.0     # SUPER ON: seven stacked saws
+upper.ddsMod.pwDetune 0.65 # detune: +-19 c spread, as measured on the recording
+upper.ddsMod.drift 0.2     # a little analogue movement
+upper.dds2.wave 0.2        # SAW
+upper.dds2.range 0.8       # 4': an octave up for the top end
+upper.mixer.mix 0.25       # DDS 1 with a quarter of DDS 2
+upper.voice.mode 0.6667    # POLY 1
+upper.voice.binaural 1.0   # BINAURAL: separate voices hard left / right (the recording's width)
+upper.vcf.lpf 1.0          # open
+upper.env2.attack 0.15     # a soft start
+upper.env2.release 0.5
+upper.vca.envLevel 0.72    # headroom for full chords
+upper.fx.chorus 0.6667     # CHORUS II

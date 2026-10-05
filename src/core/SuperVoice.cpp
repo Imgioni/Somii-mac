@@ -9,6 +9,10 @@ void SuperVoice::prepare (float hostRate, int oversampling, uint32_t seed, bool 
     voices[1].prepare (hostRate, oversampling, seed * 2u + 2u, analogTolerance);
     voices[1].setMirrored (true);
     lfo.prepare (hostRate, seed * 7u + 3u);
+    // MODE 2: this card's own starting phase and rate, so voices do not step in lockstep.
+    Rng r; r.seed (seed * 2654435761u + 17u);
+    lfo1Offset = r.unipolar();
+    lfo1RateTol = 1.0f + 0.025f * r.bipolar();
 }
 
 void SuperVoice::reset()
@@ -18,11 +22,11 @@ void SuperVoice::reset()
 }
 
 void SuperVoice::startNote (int slot, int note, float velocity, float unisonSemis, const LayerControl& c,
-                            bool declick, bool glide)
+                            bool declick, float glide)
 {
     // An idle super voice hasn't seen the current LFO settings yet; apply them before note-on so
     // ONCE / RESET use the right mode.
-    lfo.setRate (c.lfo1Hz);
+    lfo.setRate (c.lfo1PerVoice ? c.lfo1Hz * lfo1RateTol : c.lfo1Hz);
     lfo.setShape (c.lfo1Wave, c.lfo1Mode, c.lfo1ShNoise);
 
     if (binaural)
@@ -95,7 +99,7 @@ void SuperVoice::setupBlock (const LayerControl& c, float blockSeconds) noexcept
                   ? clampf (c.norm->lfo1LrPhase + lead.getMod (MDest::Lfo1LrPhase), 0.0f, 1.0f)
                   : c.lfo1LrPhase;
 
-    lfo.setRate (hz);
+    lfo.setRate (c.lfo1PerVoice ? hz * lfo1RateTol : hz);
     lfo.setShape (c.lfo1Wave, c.lfo1Mode, c.lfo1ShNoise);
     for (auto& v : voices)
         if (v.isActive()) v.setupBlock (c, blockSeconds);
@@ -107,6 +111,12 @@ void SuperVoice::render (const LayerControl& c, const LayerMods& m, float* osL, 
     float off[2] { 0.0f, 0.0f };
     if (binaural)      off[1] = lrPhase;
     else if (monoMode) { off[0] = monoOff[0]; off[1] = monoOff[1]; }
+    if (c.lfo1PerVoice && c.lfo1Mode == Lfo1Mode::FreeNorm)
+    {
+        // LR PHASE still sets the pair's own relationship; this shifts the whole card.
+        off[0] += lfo1Offset; off[1] += lfo1Offset;
+        for (auto& o : off) if (o >= 1.0f) o -= 1.0f;
+    }
     voices[0].setHfOffset (off[0]);
     voices[1].setHfOffset (off[1]);
 

@@ -14,11 +14,19 @@ enum class Dds2Wave  { Sine, Saw, Square, Triangle, Noise, Pulse };        // p.
 enum class Dds2Mode  { Norm, Ring, Sync };                                 // p.36–37; LFO range: SubOff/SubSquare/SubSine
 enum class Tri       { Off, Half, On };                                    // KEYTRACK, DYNAMICS, SUPER
 enum class Drive     { Off, One, Two };                                    // p.42
+// VCF STYLE (SPKR addition): SG = the Super Gemini's SSI ladder, ThirdWave = the Groove Synthesis
+// 3rd Wave's cleaner 4-pole with output saturation, preceded by its state-variable filter.
+enum class VcfStyle  { Sg, ThirdWave };
+enum class SvfMode   { Lp, Notch, Hp };   // the MODE knob sweeps between these
 enum class EnvSource { Env1, Both, Env2 };                                 // p.42
 enum class VcaEnv    { Env2, Gate, GateRelease };                          // p.45
 enum class Env1Mode  { Normal, Inverted, Loop };                           // p.48
 enum class Lfo1Wave  { Triangle, RevSaw, SampleHold, Square, HF, HFTrk };  // p.58–59
-enum class Lfo1Mode  { FreeNorm, OnceDds1, ResetDds2 };                    // p.59
+enum class Lfo1Mode  { FreeNorm, OnceDds1, ResetDds2 };  // p.59
+// SPKR addition, not on the hardware: how the per-voice LFO 1s relate in FREE mode.
+// Locked = every voice steps together (how 002 has always behaved); PerVoice = each voice card
+// runs its own LFO with its own phase and a slight rate tolerance, like the real analog voices.
+enum class Lfo1Phase { Locked, PerVoice };
 enum class OscDest   { Dds1, Both, Dds2 };                                 // p.60, p.72
 enum class PwmSource { Manual, Lfo1, Env1 };                               // p.62
 enum class Lfo2Wave  { Sine, RevSaw, SampleHold, Square, Saw, Noise };     // p.70
@@ -43,6 +51,9 @@ struct LayerParams
     // DDS 1 CUSTOM (SPKR): a user sample plays in place of the waveform
     bool  smpOn    = false;
     bool  smpLoop  = false;
+    bool  smpSlice = false;          // SLICE: each key from ROOT KEY up plays one slice at its own speed
+    int   smpSlices = 0;             // 0 = AUTO (transients), else 4 / 8 / 16 / 32 / 64 equal slices
+    float smpSense = 0.5f;           // AUTO: how many transients cut
     float smpStart = 0.0f;           // fraction of the sample
     float smpEnd   = 1.0f;
     float smpLoopStart = 0.0f;       // LOOP returns here from END (playback starts at smpStart)
@@ -70,6 +81,18 @@ struct LayerParams
     float     vcfEnvAmt  = 0.0f;
     float     vcfLfo1Amt = 0.0f;
     float     vcfDds2Amt = 0.0f;
+    // Independent 3rd Wave filter bank; envelope amounts are centred at 0.5.
+    float twCutoff = 1.0f, twRes = 0.0f, twEnv = 0.5f, twKey = 0.0f;
+    bool twComp = true;
+    float svfEnv = 0.5f, svfVelocity = 0.0f, svfKey = 0.0f;
+    VcfStyle  vcfStyle    = VcfStyle::Sg;
+    float     vcfSat      = 0.0f;     // SATURATION: overdrives the low-pass output
+    float     vcfVelocity = 0.0f;     // VELOCITY: key velocity to cutoff
+    bool      svfOn       = false;
+    float     svfCutoff   = 1.0f;
+    float     svfRes      = 0.0f;
+    float     svfModeMix  = 0.0f;     // 0 low-pass, 0.5 notch, 1 high-pass
+    bool      svfBand     = false;    // BAND PASS switch
 
     // VCA [pp.44–45]
     float  vcaLevel   = 0.8f;        // T-dB, 0.8 = 0 dB
@@ -82,18 +105,18 @@ struct LayerParams
     float    e1AttackHold = 0.0f;
     float    e1Attack     = 0.0f;
     float    e1DecayHold  = 0.0f;
-    float    e1Decay      = 0.6745f;  // ≈ 500 ms
+    float    e1Decay      = 0.2236f;  // 500 ms (taper::envTime)
     float    e1Sustain    = 0.0f;
-    float    e1Release    = 0.6745f;
+    float    e1Release    = 0.2236f;
     Env1Mode e1Mode       = Env1Mode::Normal;
     Tri      e1Keytrack   = Tri::Off;
 
     // ENV 2 [pp.52–53]
     float e2Attack    = 0.0f;
     float e2DecayHold = 0.0f;
-    float e2Decay     = 0.6745f;
+    float e2Decay     = 0.2236f;
     float e2Sustain   = 1.0f;
-    float e2Release   = 0.5f;         // 100 ms
+    float e2Release   = 0.1f;         // 100 ms
 
     // LFO 1 [pp.54–59]
     Lfo1Wave lfo1Wave    = Lfo1Wave::Triangle;
@@ -101,6 +124,7 @@ struct LayerParams
     float    lfo1Delay   = 0.0f;
     float    lfo1LrPhase = 0.0f;
     Lfo1Mode lfo1Mode    = Lfo1Mode::FreeNorm;
+    Lfo1Phase lfo1PhaseMode = Lfo1Phase::Locked;   // MODE 1 / MODE 2
 
     // DDS Modulator [pp.60–63]
     float     pitchLfo1Amt = 0.0f;

@@ -76,8 +76,7 @@ Attr envTimeAttr()
 {
     return Attr().withStringFromValueFunction ([] (float v, int) { return fmtTime (sg::taper::envTime (v)); })
                  .withValueFromStringFunction ([] (const juce::String& t) {
-                     const float s = juce::jlimit (0.001f, 10.0f, parseSeconds (t));
-                     return std::log10 (s / 0.001f) / 4.0f; });
+                     return sg::taper::envPosition (juce::jlimit (0.001f, 10.0f, parseSeconds (t))); });
 }
 
 Attr holdTimeAttr()
@@ -85,7 +84,7 @@ Attr holdTimeAttr()
     return Attr().withStringFromValueFunction ([] (float v, int) { return fmtTime (sg::taper::holdTime (v)); })
                  .withValueFromStringFunction ([] (const juce::String& t) {
                      const float s = parseSeconds (t);
-                     return s <= 0.0f ? 0.0f : std::log10 (juce::jlimit (0.001f, 10.0f, s) / 0.001f) / 4.0f; });
+                     return s <= 0.0f ? 0.0f : sg::taper::envPosition (juce::jlimit (0.001f, 10.0f, s)); });
 }
 
 Attr levelAttr()
@@ -137,12 +136,14 @@ void addLayer (juce::AudioProcessorValueTreeState::ParameterLayout& layout, cons
     // DDS 1 CUSTOM (SPKR addition): a dropped sample plays in place of the waveform
     const auto pct = Attr().withStringFromValueFunction ([] (float v, int) { return juce::String (v * 100.0f, 1) + " %"; });
     group->addChild (std::make_unique<APB> (juce::ParameterID { id ("dds1.smpOn"), kVersion }, nm ("DDS1 Custom On"), false));
-    group->addChild (choice (id ("dds1.smpLoop"), nm ("DDS1 Custom Mode"), { "ONE SHOT", "LOOP" }, 0));
+    group->addChild (choice (id ("dds1.smpLoop"), nm ("DDS1 Custom Mode"), { "ONE SHOT", "LOOP", "SLICE" }, 0));   // SLICE appended: saved ONE SHOT / LOOP keep their index
     group->addChild (fader (id ("dds1.smpStart"), nm ("DDS1 Custom Start"), 0.0f, pct));
     group->addChild (fader (id ("dds1.smpEnd"), nm ("DDS1 Custom End"), 1.0f, pct));
     group->addChild (fader (id ("dds1.smpLoopStart"), nm ("DDS1 Custom Loop Start"), 0.0f, pct));
     group->addChild (fader (id ("dds1.smpLevel"), nm ("DDS1 Custom Level"), 0.8f, levelAttr()));
     group->addChild (choice (id ("dds1.smpRoot"), nm ("DDS1 Custom Root Key"), noteNames(), 60));
+    group->addChild (choice (id ("dds1.smpSlices"), nm ("DDS1 Custom Slices"), { "AUTO", "4", "8", "16", "32", "64" }, 0));
+    group->addChild (fader (id ("dds1.smpSense"), nm ("DDS1 Custom Sensitivity"), 0.5f, pct));
     group->addChild (std::make_unique<APF> (juce::ParameterID { id ("dds1.smpFine"), kVersion }, nm ("DDS1 Custom Fine"),
                                             juce::NormalisableRange<float> (-100.0f, 100.0f), 0.0f,
                                             Attr().withStringFromValueFunction ([] (float v, int) { return (v > 0.0f ? "+" : "") + juce::String (juce::roundToInt (v)) + " ct"; })));
@@ -168,7 +169,16 @@ void addLayer (juce::AudioProcessorValueTreeState::ParameterLayout& layout, cons
     group->addChild (fader (id ("vcf.hpf"), nm ("HPF"), 0.0f,
                             Attr().withStringFromValueFunction ([] (float v, int) { return fmtHz (sg::taper::hpfHz (v)); })));      // p.42
     group->addChild (fader (id ("vcf.lpf"), nm ("LPF"), 1.0f));                                                                        // p.42
-    group->addChild (fader (id ("vcf.res"), nm ("Resonance"), 0.0f));                                                                  // p.42
+    group->addChild (fader (id ("vcf.res"), nm ("Resonance"), 0.0f));
+    // VCF STYLE (SPKR): the Super Gemini ladder, or the 3rd Wave's filters
+    group->addChild (choice (id ("vcf.style"), nm ("VCF Style"), { "SG", "3W" }, 0));
+    group->addChild (fader (id ("vcf.saturation"), nm ("VCF Saturation"), 0.0f));
+    group->addChild (fader (id ("vcf.velocity"), nm ("VCF Velocity"), 0.0f));
+    group->addChild (std::make_unique<APB> (juce::ParameterID { id ("svf.on"), kVersion }, nm ("SVF On"), false));
+    group->addChild (fader (id ("svf.cutoff"), nm ("SVF Cutoff"), 1.0f));
+    group->addChild (fader (id ("svf.res"), nm ("SVF Resonance"), 0.0f));
+    group->addChild (fader (id ("svf.mode"), nm ("SVF Mode"), 0.0f));
+    group->addChild (std::make_unique<APB> (juce::ParameterID { id ("svf.band"), kVersion }, nm ("SVF Band Pass"), false));                                                                  // p.42
     group->addChild (choice (id ("vcf.envSource"), nm ("VCF Env Source"), { "ENV 1", "1+2", "ENV 2" }, 0));                           // p.42
     group->addChild (choice (id ("vcf.keytrack"), nm ("VCF Keytrack"), kTri, 0));                                                       // p.43
     group->addChild (fader (id ("vcf.envAmt"), nm ("VCF Env"), 0.0f));                                                                // p.42
@@ -188,18 +198,18 @@ void addLayer (juce::AudioProcessorValueTreeState::ParameterLayout& layout, cons
     group->addChild (fader (id ("env1.attackHold"), nm ("ENV1 Attack Hold"), 0.0f, holdTimeAttr()));                                  // p.47
     group->addChild (fader (id ("env1.attack"), nm ("ENV1 Attack"), 0.0f, envTimeAttr()));                                           // p.47
     group->addChild (fader (id ("env1.decayHold"), nm ("ENV1 Decay Hold"), 0.0f, holdTimeAttr()));                                    // p.47
-    group->addChild (fader (id ("env1.decay"), nm ("ENV1 Decay"), 0.6747f, envTimeAttr()));                                          // p.48
+    group->addChild (fader (id ("env1.decay"), nm ("ENV1 Decay"), 0.2236f, envTimeAttr()));                                          // p.48
     group->addChild (fader (id ("env1.sustain"), nm ("ENV1 Sustain"), 0.0f));                                                          // p.48
-    group->addChild (fader (id ("env1.release"), nm ("ENV1 Release"), 0.6747f, envTimeAttr()));                                      // p.48
+    group->addChild (fader (id ("env1.release"), nm ("ENV1 Release"), 0.2236f, envTimeAttr()));                                      // p.48
     group->addChild (choice (id ("env1.mode"), nm ("ENV1 Mode"), { "NORMAL", "INVERTED", "LOOP" }, 0));                               // p.48
     group->addChild (choice (id ("env1.keytrack"), nm ("ENV1 Keytrack"), kTri, 0));                                                     // p.49
 
     // ENV 2 [pp.52–53]
     group->addChild (fader (id ("env2.attack"), nm ("ENV2 Attack"), 0.0f, envTimeAttr()));
     group->addChild (fader (id ("env2.decayHold"), nm ("ENV2 Decay Hold"), 0.0f, holdTimeAttr()));
-    group->addChild (fader (id ("env2.decay"), nm ("ENV2 Decay"), 0.6747f, envTimeAttr()));
+    group->addChild (fader (id ("env2.decay"), nm ("ENV2 Decay"), 0.2236f, envTimeAttr()));
     group->addChild (fader (id ("env2.sustain"), nm ("ENV2 Sustain"), 1.0f));
-    group->addChild (fader (id ("env2.release"), nm ("ENV2 Release"), 0.5f, envTimeAttr()));
+    group->addChild (fader (id ("env2.release"), nm ("ENV2 Release"), 0.1f, envTimeAttr()));
 
     // LFO 1 [pp.54–59]
     group->addChild (choice (id ("lfo1.wave"), nm ("LFO1 Waveform"), { "TRIANGLE", "REV SAW", "S&H", "SQUARE", "HF", "HF TRK" }, 0)); // p.58–59
@@ -210,6 +220,7 @@ void addLayer (juce::AudioProcessorValueTreeState::ParameterLayout& layout, cons
                             Attr().withStringFromValueFunction ([] (float v, int) { return fmtTime (sg::taper::lfo1Delay (v)); }))); // p.56
     group->addChild (fader (id ("lfo1.lrPhase"), nm ("LFO1 LR Phase/Spread"), 0.0f,
                             Attr().withStringFromValueFunction ([] (float v, int) { return juce::String (juce::roundToInt (v * 100.0f)) + " %"; }))); // p.56–58
+    group->addChild (choice (id ("lfo1.phaseMode"), nm ("LFO 1 Phase Mode"), { "MODE 1", "MODE 2" }, 0));   // SPKR: locked / per voice
     group->addChild (choice (id ("lfo1.mode"), nm ("LFO1 Mode"), { "FREE / NORM", "ONCE / DDS 1", "RESET / DDS 2" }, 0));            // p.59
 
     // DDS Modulator [pp.60–63]
@@ -378,6 +389,21 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     addMatrix (layout, "upper", "Upper");
     addMatrix (layout, "lower", "Lower");
     addFxRack (layout);
+    // Append new IDs so existing host parameter indices remain stable.
+    for (const auto* layer : { "upper", "lower" })
+    {
+        const juce::String prefix = juce::String (layer) + ".";
+        for (const auto* suffix : { "tw.cutoff", "tw.res", "tw.envAmt", "tw.keytrack", "svf.envAmt", "svf.velocity", "svf.keytrack" })
+        {
+            const juce::String leaf (suffix);
+            const float def = leaf.endsWith ("envAmt") ? 0.5f : (leaf == "tw.cutoff" ? 1.0f : 0.0f);
+            auto attr = Attr();
+            if (leaf.endsWith ("envAmt"))
+                attr = attr.withStringFromValueFunction ([] (float v, int) { return juce::String (juce::roundToInt ((2.0f * v - 1.0f) * 127.0f)); });
+            layout.add (fader (prefix + leaf, juce::String (layer) + " 3W " + leaf, def, attr));
+        }
+        layout.add (std::make_unique<APB> (juce::ParameterID { prefix + "tw.resComp", kVersion }, juce::String (layer) + " 3W Resonance Compensation", true));
+    }
     return layout;
 }
 
@@ -397,17 +423,22 @@ void LayerParamRefs::bind (juce::AudioProcessorValueTreeState& s, const juce::St
     dds1Wave = g ("dds1.wave"); dds1Range = g ("dds1.range"); altA = g ("dds1.altA"); altB = g ("dds1.altB");
     smpOn = g ("dds1.smpOn"); smpLoop = g ("dds1.smpLoop"); smpStart = g ("dds1.smpStart"); smpEnd = g ("dds1.smpEnd");
     smpLoopStart = g ("dds1.smpLoopStart"); smpLevel = g ("dds1.smpLevel"); smpRoot = g ("dds1.smpRoot"); smpFine = g ("dds1.smpFine");
+    smpSlices = g ("dds1.smpSlices"); smpSense = g ("dds1.smpSense");
     dds2Wave = g ("dds2.wave"); dds2Range = g ("dds2.range"); dds2Tune = g ("dds2.tune"); dds2Mode = g ("dds2.mode");
     mix = g ("mixer.mix"); pan = g ("mixer.pan");
     drive = g ("vcf.drive"); hpf = g ("vcf.hpf"); lpf = g ("vcf.lpf"); res = g ("vcf.res");
     envSource = g ("vcf.envSource"); keytrack = g ("vcf.keytrack");
+    twCutoff = g ("tw.cutoff"); twRes = g ("tw.res"); twEnv = g ("tw.envAmt"); twKey = g ("tw.keytrack"); twComp = g ("tw.resComp");
+    svfEnv = g ("svf.envAmt"); svfVelocity = g ("svf.velocity"); svfKey = g ("svf.keytrack");
+    vcfStyle = g ("vcf.style"); vcfSat = g ("vcf.saturation"); vcfVel = g ("vcf.velocity");
+    svfOn = g ("svf.on"); svfCutoff = g ("svf.cutoff"); svfRes = g ("svf.res"); svfMode = g ("svf.mode"); svfBand = g ("svf.band");
     vcfEnv = g ("vcf.envAmt"); vcfLfo = g ("vcf.lfo1Amt"); vcfDds2 = g ("vcf.dds2Amt");
     vcaLevel = g ("vca.envLevel"); vcaLfo = g ("vca.lfo1Amt"); vcaDds2 = g ("vca.dds2Amt");
     vcaEnv = g ("vca.envMode"); dynamics = g ("vca.dynamics");
     e1AH = g ("env1.attackHold"); e1A = g ("env1.attack"); e1DH = g ("env1.decayHold"); e1D = g ("env1.decay");
     e1S = g ("env1.sustain"); e1R = g ("env1.release"); e1Mode = g ("env1.mode"); e1Kt = g ("env1.keytrack");
     e2A = g ("env2.attack"); e2DH = g ("env2.decayHold"); e2D = g ("env2.decay"); e2S = g ("env2.sustain"); e2R = g ("env2.release");
-    lfoWave = g ("lfo1.wave"); lfoRate = g ("lfo1.rate"); lfoDelay = g ("lfo1.delay"); lfoLr = g ("lfo1.lrPhase"); lfoMode = g ("lfo1.mode");
+    lfoWave = g ("lfo1.wave"); lfoRate = g ("lfo1.rate"); lfoDelay = g ("lfo1.delay"); lfoLr = g ("lfo1.lrPhase"); lfoMode = g ("lfo1.mode"); lfoPhaseMode = g ("lfo1.phaseMode");
     pLfo = g ("ddsMod.lfo1Amt"); pEnv = g ("ddsMod.env1Amt"); pDest = g ("ddsMod.dest"); superMode = g ("ddsMod.super");
     pw = g ("ddsMod.pwDetune"); drift = g ("ddsMod.drift"); pwm = g ("ddsMod.pwmWave"); pwmSrc = g ("ddsMod.pwmSource");
     xmod = g ("ddsMod.crossMod");
@@ -467,6 +498,9 @@ void LayerParamRefs::read (sg::LayerParams& p) const noexcept
     p.altB = i (altB);
     p.smpOn = f (smpOn) >= 0.5f;
     p.smpLoop = i (smpLoop) == 1;
+    p.smpSlice = i (smpLoop) == 2;
+    p.smpSlices = (i (smpSlices) > 0) ? 2 << i (smpSlices) : 0;   // AUTO, 4, 8, 16, 32, 64
+    p.smpSense = f (smpSense);
     p.smpStart = f (smpStart);
     p.smpEnd = f (smpEnd);
     p.smpLoopStart = f (smpLoopStart);
@@ -484,6 +518,16 @@ void LayerParamRefs::read (sg::LayerParams& p) const noexcept
     p.envSource = static_cast<sg::EnvSource> (i (envSource));
     p.vcfKeytrack = static_cast<sg::Tri> (i (keytrack));
     p.vcfEnvAmt = f (vcfEnv); p.vcfLfo1Amt = f (vcfLfo); p.vcfDds2Amt = f (vcfDds2);
+    p.vcfStyle = static_cast<sg::VcfStyle> (i (vcfStyle));
+    p.twCutoff = f (twCutoff); p.twRes = f (twRes); p.twEnv = f (twEnv); p.twKey = f (twKey); p.twComp = f (twComp) >= 0.5f;
+    p.svfEnv = f (svfEnv); p.svfVelocity = f (svfVelocity); p.svfKey = f (svfKey);
+    p.vcfSat = f (vcfSat);
+    p.vcfVelocity = f (vcfVel);
+    p.svfOn = f (svfOn) >= 0.5f;
+    p.svfCutoff = f (svfCutoff);
+    p.svfRes = f (svfRes);
+    p.svfModeMix = f (svfMode);
+    p.svfBand = f (svfBand) >= 0.5f;
     p.vcaLevel = f (vcaLevel); p.vcaLfo1Amt = f (vcaLfo); p.vcaDds2Amt = f (vcaDds2);
     p.vcaEnv = static_cast<sg::VcaEnv> (i (vcaEnv));
     p.dynamics = static_cast<sg::Tri> (i (dynamics));
@@ -495,6 +539,7 @@ void LayerParamRefs::read (sg::LayerParams& p) const noexcept
     p.lfo1Wave = static_cast<sg::Lfo1Wave> (i (lfoWave));
     p.lfo1Rate = f (lfoRate); p.lfo1Delay = f (lfoDelay); p.lfo1LrPhase = f (lfoLr);
     p.lfo1Mode = static_cast<sg::Lfo1Mode> (i (lfoMode));
+    p.lfo1PhaseMode = static_cast<sg::Lfo1Phase> (i (lfoPhaseMode));
     p.pitchLfo1Amt = f (pLfo); p.pitchEnv1Amt = f (pEnv);
     p.pitchDest = static_cast<sg::OscDest> (i (pDest));
     p.superMode = static_cast<sg::Tri> (i (superMode));

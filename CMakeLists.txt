@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(Geminus VERSION 0.4.4 LANGUAGES C CXX)
+project(Geminus VERSION 0.4.6 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -176,6 +176,13 @@ clap_juce_extensions_plugin(TARGET Geminus
 # ── Parameter dump: the source of truth for the web UI's binding table ──────────────────────
 add_executable(SGWavePreview tools/WavePreview.cpp)
 target_link_libraries(SGWavePreview PRIVATE sg_core)
+
+# Renders a patch from the DSP core to a WAV, for comparing against recordings of the hardware
+add_executable(SGRender tools/Render.cpp)
+target_link_libraries(SGRender PRIVATE sg_core)
+if(MSVC)
+    target_compile_options(SGRender PRIVATE /utf-8)
+endif()
 
 juce_add_console_app(SGDumpParams PRODUCT_NAME "SGDumpParams")
 target_sources(SGDumpParams PRIVATE tools/DumpParams.cpp ${SG_PLUGIN_SOURCES})

@@ -24,7 +24,7 @@ public:
     void setMonoSpread (bool mono, float offset0, float offset1) noexcept { monoMode = mono; monoOff[0] = offset0; monoOff[1] = offset1; }
 
     // Binaural: slot is ignored and both voices play the note. Non-binaural: slot 0 or 1.
-    void startNote (int slot, int note, float velocity, float unisonSemis, const LayerControl& c, bool declick, bool glide);
+    void startNote (int slot, int note, float velocity, float unisonSemis, const LayerControl& c, bool declick, float glide);
     void changeNote (int slot, int note, float unisonSemis) noexcept;
     void releaseSlot (int slot) noexcept;
     void releaseNote (int note) noexcept;
@@ -48,6 +48,8 @@ public:
 private:
     Voice voices[2];
     Lfo1 lfo;
+    // MODE 2 [LayerParams::Lfo1Phase]: this voice card's own LFO 1 phase and rate
+    float lfo1Offset = 0.0f, lfo1RateTol = 1.0f;
     bool binaural = true, monoMode = false;
     float monoOff[2] { 0.0f, 0.0f };
     float lrPhase = 0.0f;

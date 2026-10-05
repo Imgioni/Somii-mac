@@ -4,11 +4,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  A, INK, INK2, ORANGE, ONBLACK_INK, ONBLACK_INK2, txt, txtInv, vrule, hrule, blackPanel, well,
+  A, INK, INK2, ORANGE, ONBLACK_INK, ONBLACK_INK2, txt, txtInv, vrule, hrule, blackPanel, well, sw2h,
   knob, rotary, wRotary, fader, hfader, sw3, wSw3, button, led, ledBound, ledLadder, sect, popover,
   keyButton, hit, TEXT, lineH, wText, r1, esc, FONT, BTN_ASPECT, STYLE
 } from './lib.mjs';
 import { FX, DIVS } from './fxdefs.mjs';
+import { SKINS, SKIN_OF } from './fxskins.js';
 
 const OUT = path.dirname(fileURLToPath(import.meta.url));   // decodes spaces (the project folder is '002 by SPKR')
 
@@ -87,6 +88,54 @@ function pack(sec, items, gap, name) {
 }
 const GAP = (w) => ({ w, r: () => '' });
 const ONBLACK = { lc: ONBLACK_INK2, tick: 'var(--otick)', labelColor: ONBLACK_INK };
+
+// The 3rd Wave's filter section [its manual pp.53-54]: a 4-pole low-pass with SATURATION on its
+// output, and above it the 2-pole state-variable filter that feeds it. CUTOFF, RESONANCE and ENV
+// AMT belong to an independent parameter bank, retained when switching styles.
+function thirdWaveVcf(g, y, P, kv) {
+  let o = '';
+  // Geometry: a 46 px left column holds STYLE (row 1) and the two state-variable keys (row 2);
+  // the knobs take the rest. Desktop mode shows this card on its own and enlarges it, so the rows
+  // use the whole height rather than sitting in the top two thirds.
+  const kd = 52, col = 50, kx = g.x + col, kw = g.w - col - 8;
+  const r1y = y + 60, r2y = y + 208;
+  const lblOf = (ky) => ky + kd + 12;
+  const place = (items, rowY, areaX, areaW) => {
+    const pitch = areaW / items.length;
+    return items.map(([label, id, val, minmax], i) =>
+      knob({ x: areaX + i * pitch + (pitch - kd) / 2, y: rowY, d: kd, v: kv, val, ticks: 11,
+             label, lsize: 6.4, ly: lblOf(rowY), lw: pitch - 4, id: P(id), domId: P(id) + '__3w', minmax })).join('');
+  };
+
+  // ── the 4-pole low-pass, with SATURATION on its output ──
+  o += txt(kx, y + 28, 220, 'LOW-PASS FILTER', { size: 6.6, align: 'left', color: INK2, weight: 600 });
+  o += place([['SAT', 'vcf.saturation', 0.0],
+              ['CUTOFF', 'tw.cutoff', 1.0],
+              ['RES', 'tw.res', 0.0],
+              ['ENV AMT', 'tw.envAmt', 0.5, ['−', '+']],
+              ['VELOCITY', 'vcf.velocity', 0.0],
+              ['KEY AMT', 'tw.keytrack', 0.0]], r1y, kx, kw);
+  o += button({ x: kx + kw - 48, y: y + 15, w: 28, led: true, ld: 6,
+                label: 'RES COMP', lsize: 5.6, ly: y + 38, lw: 64,
+                id: P('tw.resComp'), title: 'Preserve bass as low-pass resonance increases' });
+
+  // ── the 2-pole state-variable filter that feeds it ──
+  o += txt(kx, y + 178, 260, 'STATE-VARIABLE FILTER', { size: 6.6, align: 'left', color: INK2, weight: 600 });
+  // ON and BAND sit on the same line as the knobs they belong to, not stacked in the margin
+  o += button({ x: g.x + 10, y: r2y + 4, w: 28, led: true, ld: 6, label: 'ON', lsize: 6.2, ly: r2y + 32, lw: 46,
+                id: P('svf.on'), domId: P('svf.on') + '__3w',
+                title: 'Run the state-variable filter before the low-pass' });
+  o += button({ x: g.x + 10, y: r2y + 67, w: 28, led: true, ld: 6, label: 'BAND', lsize: 6.2, ly: r2y + 95, lw: 46,
+                id: P('svf.band'), domId: P('svf.band') + '__3w', title: 'Band-pass mode' });
+  o += place([['MODE', 'svf.mode', 0.0, ['LP', 'HP']],
+              ['CUTOFF', 'svf.cutoff', 1.0],
+              ['RES', 'svf.res', 0.0],
+              ['ENV AMT', 'svf.envAmt', 0.5, ['−', '+']],
+              ['VELOCITY', 'svf.velocity', 0.0],
+              ['KEY AMT', 'svf.keytrack', 0.0]], r2y, kx, kw);
+  o += txt(kx, lblOf(r2y) + 13, kw / 6, 'LP - NOTCH - HP', { size: 5.6, color: INK2, weight: 600 });
+  return o;
+}
 
 // ---------------------------------------------------------------- layer row
 function layerRow(y, upper) {
@@ -184,7 +233,10 @@ function layerRow(y, upper) {
     return rotary({ x: sx, y: y + 48, d: 44, v: kv, sel: 0,
       steps: ['FREE', 'ONCE', 'RESET'], label: 'MODE', ly: y + 122, id: P('lfo1.mode') })
       + rotary({ x: sx, y: y + 156, d: 44, v: kv, sel: 0,
-        steps: ['TRI', 'SAW', 'S&H', 'SQR', 'HF', 'TRK'], label: 'WAVE', ly: y + 230, id: P('lfo1.wave') });
+        steps: ['TRI', 'SAW', 'S&H', 'SQR', 'HF', 'TRK'], label: 'WAVE', ly: y + 230, id: P('lfo1.wave') })
+      // SPKR addition (not on the hardware): 1 = every voice's LFO 1 in step, 2 = each voice its own
+      + sw2h({ x: sx + 22, y: y + 268, h: 30, opts: ['1', '2'], label: 'VOICE PHASE', ly: y + 286,
+               id: P('lfo1.phaseMode'), title: '1: all voices share one LFO 1  ·  2: each voice card runs its own' });
   } };
   o += pack(g, [
     F(0.67, 'RATE', null, 'lfo1.rate'),
@@ -208,7 +260,7 @@ function layerRow(y, upper) {
     GAP(4),
     cluster([
       SW(0, ['ON', '1/2', 'OFF'], 'SUPER', 'ddsMod.super'),
-      F(0.0, 'PW/DET', null, 'ddsMod.pwDetune'),
+      F(0.0, 'PW/DET', 'DRIFT', 'ddsMod.pwDetune', null, 'ddsMod.drift'),
       F(0.0, 'DRIFT', null, 'ddsMod.drift', 'dark'),
       F(0.0, 'PWM', null, 'ddsMod.pwmWave'),
       SW(0, ['ENV 1', 'LFO 1', 'MAN'], 'PWM SRC', 'ddsMod.pwmSource')
@@ -276,10 +328,16 @@ function layerRow(y, upper) {
   o += pack(g, [K(60, 0.0, 'MIX', 'PAN', 'mixer.mix', 'mixer.pan', ['DDS 1', 'DDS 2'])], 0, 'mix');
   o += endGroup();
 
-  // -- VCF
-  o += group('vcf', S.vcf.x, S.vcf.w);
+  // -- VCF. Two layouts in the same box: the Super Gemini's, and the 3rd Wave's (VCF STYLE = 3W,
+  // a SPKR addition). The STYLE key swaps them; CSS shows one and hides the other per layer.
+  o += dk(engine + '-vcf', S.vcf.x, y, S.vcf.w, ROWH, null, 1.15);
   g = S.vcf;
   o += sect(g.x, y + 2, g.w, 'VCF');
+  // STYLE sits outside both layouts: it has to be reachable whichever one is showing
+  o += button({ x: g.x + 8, y: y + 34, w: 32, led: true, ld: 8, label: 'STYLE', lsize: 6.2, ly: y + 66, lw: 48,
+                id: P('vcf.style'), cycle: true, steps: 2,
+                title: 'Filter style: SG (Super Gemini ladder) or 3W (3rd Wave)' });
+  o += '<div class="vcf-sg-' + engine + '">';
   o += pack(g, [
     SW(0, ['2', '1', 'OFF'], 'DRIVE', 'vcf.drive'),
     F(0.0, 'HPF', null, 'vcf.hpf'),
@@ -289,6 +347,12 @@ function layerRow(y, upper) {
     cluster([F(0.0, 'ENV', null, 'vcf.envAmt'), F(0.0, 'LFO 1', null, 'vcf.lfo1Amt'),
       F(0.0, 'DDS 2', null, 'vcf.dds2Amt', 'dark')], 'CUTOFF MODULATION', 3)
   ], 3, 'vcf');
+  // the brackets link the Super Gemini faders, so they belong inside that layout - drawn here
+  // rather than in endGroup(), or they stay on screen over the 3rd Wave one
+  o += bracketsDone();
+  o += '</div><div class="vcf-3w-' + engine + '">';
+  o += thirdWaveVcf(g, y, P, kv);
+  o += '</div>';
   o += endGroup();
 
   // -- VCA
@@ -455,7 +519,7 @@ function globalStrip(y) {
   // MOD AMOUNT / MOD ASSIGN
   card('mod', 148 + 16 * 51 + 14 + 42 + 6, 1.12);
   title(148, 'MOD AMOUNT');
-  o += knob({ x: x + 14, y: B - 6, d: 56, v: 'cream', val: 0.5, ticks: 11, label: '', id: 'modamt', domId: 'modamt', title: 'Modulation amount: -100 to +100 percent' });
+  o += knob({ x: x + 14, y: B - 6, d: 56, v: 'cream', val: 0.5, ticks: 11, label: '', id: 'modamt', domId: 'modamt', shiftId: 'global.fineTune', title: 'Modulation amount: -100 to +100 percent  -  Shift: global fine tune' });
   o += txt(x - 4, B + 62, 92, 'AMOUNT', { size: 7.6 });
   o += txtInv(x - 4, B + 82, 92, 'FINE ADJ', { size: 6.6 });
   o += key(104, { label: 'CLEAR', action: 'mtxClear', domId: 'act-mtxClear', title: 'Clear the selected routing - Shift: clear all for the source' });
@@ -601,14 +665,22 @@ function ribbonRow(y, rx, rw) {
   const rh = 56;
   const endW = rh * 2.2;
   const playableX = r1(rx + endW + 5), playableW = r1(rw - 2 * endW - 10);
-  o += sect(rx, y - 33, rw, 'RIBBON', { size: 9, ruleColor: 'var(--rule)' });
+  o += sect(rx, y - 33, rw, 'RIBBON  ·  ACROSS: BEND  ·  PUSH UP: AFTERTOUCH', { size: 9, ruleColor: 'var(--rule)' });
   o += '<img src="' + A.ribbon + '" alt="" style="position:absolute;left:' + rx + 'px;top:' + y + 'px;width:' + rw + 'px;height:' + rh + 'px;">';
   o += '<img src="' + A.ribbonLeft + '" alt="" style="position:absolute;left:' + rx + 'px;top:' + y + 'px;width:' + endW + 'px;height:' + rh + 'px;">';
   o += '<img src="' + A.ribbonRight + '" alt="" style="position:absolute;left:' + (rx + rw - endW) + 'px;top:' + y + 'px;width:' + endW + 'px;height:' + rh + 'px;">';
-  // touch marker: a lit bar that follows the finger, wider with pressure
-  o += '<div id="ribbon-marker" style="position:absolute;left:' + (rx + rw / 2) + 'px;top:' + (y + 8) + 'px;width:6px;height:' + (rh - 16) + 'px;margin-left:-3px;'
-    + 'border-radius:3px;background:' + ORANGE + ';box-shadow:0 0 14px 4px rgba(246,90,39,.75),0 0 3px 1px rgba(255,200,170,.9);opacity:0;pointer-events:none;transition:opacity .12s;"></div>';
-  o += '<div id="ribbon-input" title="Ribbon: slide left/right or up/down = pitch bend (relative)" style="position:absolute;left:' + playableX + 'px;top:' + (y + 8) + 'px;width:' + playableW + 'px;height:' + (rh - 16) + 'px;cursor:pointer;touch-action:none;z-index:5;"></div>';
+  // ACROSS bends from where the finger lands [p.77]; PUSH UP is aftertouch (user, 2026-10-05: most
+  // keyboards have none). While touched: a tick where it landed, the bend as a span, the finger as a
+  // bar, and a pressure bar rising from the strip - flat marks, drawn by ui/geminus.js
+  const ty = y + 8, th = rh - 16, mk = 'position:absolute;top:' + ty + 'px;height:' + th + 'px;pointer-events:none;opacity:0;transition:opacity .12s;';
+  o += '<div id="ribbon-span" style="' + mk + 'left:' + (rx + rw / 2) + 'px;width:0;background:' + ORANGE + ';opacity:0;"></div>';
+  o += '<div id="ribbon-anchor" style="' + mk + 'left:' + (rx + rw / 2) + 'px;width:2px;margin-left:-1px;background:#F2EEE8;"></div>';
+  o += '<div id="ribbon-marker" style="' + mk + 'left:' + (rx + rw / 2) + 'px;width:6px;margin-left:-3px;border-radius:3px;background:' + ORANGE + ';"></div>';
+  o += '<div id="ribbon-at" style="position:absolute;left:' + (rx + rw / 2) + 'px;top:' + (ty - 4) + 'px;width:14px;margin-left:-7px;height:0;transform:translateY(-100%);border-radius:3px 3px 0 0;'
+    + 'background:' + ORANGE + ';pointer-events:none;opacity:0;transition:opacity .12s;"></div>';
+  o += '<div id="ribbon-readout" style="position:absolute;left:0;top:0;transform:translate(-50%,-100%);padding:5px 12px;border-radius:4px;background:#23252A;color:#F2EEE8;white-space:nowrap;'
+    + 'font:700 15px ' + FONT + ';font-stretch:75%;letter-spacing:.1em;pointer-events:none;opacity:0;transition:opacity .12s;z-index:8"></div>';
+  o += '<div id="ribbon-input" title="Ribbon: slide across to bend the pitch from where you land · push up for aftertouch" style="position:absolute;left:' + playableX + 'px;top:' + ty + 'px;width:' + playableW + 'px;height:' + th + 'px;cursor:pointer;touch-action:none;z-index:5;"></div>';
   for (let i = 1; i < 4; i++) {
     const mxp = playableX + (playableW * i / 4);
     o += '<div style="position:absolute;left:' + r1(mxp) + 'px;top:' + (y - 9) + 'px;width:1.5px;height:6px;background:' + INK2 + ';opacity:.8;"></div>';
@@ -672,18 +744,18 @@ const BAR_L = 1540;                              // fills the desktop header up 
 function topBar() {
   let o = '';
   o += blackPanel(PL, 8, PR - PL, TOPBAR - 14);
-  // patch field: click the name to browse; SAVE and prev / next live inside its right end
+  // patch field: click the name to browse; prev / next live inside its right end. SAVE lives only in the
+  // browser (user, 2026-10-05: a one-click save here overwrote the file on top of the loaded patch)
   const fx = PL + 16, fy = 15, fw = 600, fh = 34;
   o += dk('bar-l', PL, 0, BAR_L, TOPBAR);
   o += '<div class="patch-field" style="position:absolute;left:' + fx + 'px;top:' + fy + 'px;width:' + fw + 'px;height:' + fh + 'px;background:rgba(0,0,0,.3);border-radius:3px;box-shadow:inset 0 1px 3px rgba(0,0,0,.6),inset 0 0 0 1px rgba(255,255,255,.1);"></div>';
   o += txt(fx + 12, fy + 9, 70, 'PATCH', { size: 8, align: 'left', color: 'var(--hi)', ls: 0.14 });
-  const inW = [74, 34, 34], inX = fx + fw - 6 - inW.reduce((s, v) => s + v, 0);
+  const inW = [34, 34], inX = fx + fw - 6 - inW.reduce((s, v) => s + v, 0);
   o += txt(fx + 82, fy + 6, inX - fx - 92, 'INIT', { size: 11, align: 'left', color: 'var(--hi)', ls: 0.06, id: 'patch-name', style: 'overflow:hidden;text-overflow:ellipsis;' });
   o += '<div data-open="pop-patches" title="Open the patch browser" style="position:absolute;left:' + fx + 'px;top:' + fy + 'px;width:' + (inX - fx) + 'px;height:' + fh + 'px;cursor:pointer;z-index:6;"></div>';
   const inLink = (x, wd, label, action, opt) => keyButton(x, fy, wd, label, action, Object.assign({ link: true, size: label.length > 1 ? 8.4 : 9, h: fh, color: 'var(--barlink)' }, opt));
-  o += inLink(inX, inW[0], 'SAVE', 'patchSave', { title: 'Save the patch under its name (Shift: save as)' });
-  o += inLink(inX + inW[0], inW[1], '◀', 'patchPrev', { title: 'Previous patch in the folder' });
-  o += inLink(inX + inW[0] + inW[1], inW[2], '▶', 'patchNext', { title: 'Next patch in the folder' });
+  o += inLink(inX, inW[0], '◀', 'patchPrev', { title: 'Previous patch in the folder' });
+  o += inLink(inX + inW[0], inW[1], '▶', 'patchNext', { title: 'Next patch in the folder' });
   // menus, starting right after the patch field
   const barLinks = [
     ['SETTINGS', 'openSettings', {}],
@@ -727,23 +799,23 @@ function topBar() {
 const MTX_SRC = [['dds2', 'DDS 2'], ['lfo2', 'LFO 2'], ['env1', 'ENV 1'], ['vel', 'VELOCITY'], ['at', 'AFTERTOUCH'], ['expr', 'EXPRESSION'], ['ribbon', 'RIBBON'], ['note', 'NOTE NO.']];
 const MTX_DST = [['lfo1Rate', 'LFO 1 RATE'], ['xmod', 'CROSS MOD'], ['wave', 'WAVE MOD'], ['mix', 'OSC MIX'], ['hpf', 'HPF'], ['res', 'RESONANCE'], ['env1Decay', 'ENV 1 DECAY'], ['dlyTime', 'DELAY TIME']];
 
+// Each route is a cell: idle cells sit back, a cell with an amount lights and carries a bar that
+// grows from its centre (left = negative). Hovering a cell lights its source row and destination column.
 function matrixPage(w, h) {
   let o = '';
   o += layerLink(w, 'mtx-layer-link');
-  const x0 = 250, y0 = 138, cw = (w - x0 - 30) / 8, ch = (h - y0 - 30) / 8;
-  MTX_DST.forEach((d, c) => o += txt(x0 + c * cw, y0 - 44, cw, d[1], { size: 8.6, color: INK, ls: 0.08 }));
-  MTX_DST.forEach((d, c) => o += txt(x0 + c * cw, y0 - 26, cw, 'ABCDEFGH'[c], { size: 7, color: INK2, weight: 600 }));
-  MTX_SRC.forEach((s, r) => {
-    o += txt(30, y0 + r * ch + ch / 2 - 18, 200, s[1], { size: 9.4, align: 'right' });
-    o += txt(30, y0 + r * ch + ch / 2 + 2, 200, String(r + 1), { size: 7, align: 'right', color: INK2, weight: 600 });
-    o += hrule(30, y0 + r * ch, w - 60, 'var(--rule)', 1);
-  });
-  const kd = 44;
+  const x0 = 250, y0 = 128, cw = (w - x0 - 24) / 8, ch = (h - y0 - 24) / 8, G = 5;
+  o += txt(30, 74, 600, '', { size: 8, align: 'left', color: INK2, weight: 600, id: 'mtx-count' });
+  o += '<div id="mtx-geo" hidden data-x0="' + x0 + '" data-y0="' + y0 + '" data-cw="' + r1(cw) + '" data-ch="' + r1(ch) + '"></div>';
+  MTX_DST.forEach((d, c) => o += txt(x0 + c * cw, y0 - 32, cw, d[1], { size: 8, color: INK2, ls: 0.1, id: 'mtx-col' + c, cls: 'mtx-head' }));
+  MTX_SRC.forEach((s, r) => o += txt(24, y0 + r * ch + ch / 2 - 9, 206, s[1], { size: 8.6, align: 'right', color: INK2, ls: 0.08, id: 'mtx-row' + r, cls: 'mtx-head' }));
+  const kd = 40;
   MTX_SRC.forEach((s, r) => MTX_DST.forEach((d, c) => {
     const dom = 'mtx.' + s[0] + '.' + d[0];
-    const cx = x0 + c * cw + cw / 2, cy = y0 + r * ch + ch / 2 - 8;
+    const x = x0 + c * cw, y = y0 + r * ch, cx = x + cw / 2, cy = y + ch / 2 - 10;
+    o += '<div id="' + dom + '__cell" class="mtx-cell" style="left:' + r1(x + G) + 'px;top:' + r1(y + G) + 'px;width:' + r1(cw - 2 * G) + 'px;height:' + r1(ch - 2 * G) + 'px"></div>';
     o += knob({ x: cx - kd / 2, y: cy - kd / 2, d: kd, v: 'cream', val: 0.5, ticks: 5, id: 'mtx.' + s[0] + '.' + d[0], layered: true, domId: dom });
-    o += txt(cx - 40, cy + kd / 2 + 10, 80, '0', { size: 6.8, color: INK2, weight: 600, id: dom + '__val', cls: 'mtx-val' });
+    o += txt(cx - 50, cy + kd / 2 + 8, 100, '0', { size: 6.8, color: INK2, weight: 600, id: dom + '__val', cls: 'mtx-val' });
   }));
   return o;
 }
@@ -767,15 +839,15 @@ function seqPage(w, h) {
   const inkC = ONBLACK_INK;
   for (let i = 0; i < 16; i++) {
     const x = gx + i * cw + Math.floor(i / 4) * BG, cx = x + 3, cwi = cw - 6;
-    o += '<div id="seq-cell' + i + '" data-seqstep="' + i + '" style="position:absolute;left:' + r1(cx) + 'px;top:' + gy + 'px;width:' + r1(cwi) + 'px;height:' + chh + 'px;border-radius:5px;cursor:pointer;z-index:5;background:var(--inset);box-shadow:0 2px 4px rgba(0,0,0,.25);"></div>';
-    o += '<div id="seq-play' + i + '" style="position:absolute;left:' + r1(cx) + 'px;top:' + gy + 'px;width:' + r1(cwi) + 'px;height:6px;border-radius:5px 5px 0 0;background:' + ORANGE + ';opacity:0;pointer-events:none;z-index:6;"></div>';
-    o += txt(cx, gy + 14, cwi, String(i + 1), { size: 7, color: inkC, weight: 600, id: 'seq-num' + i, style: 'z-index:6;opacity:.75;' });
-    o += txt(cx, gy + 48, cwi, '—', { size: 15, color: inkC, id: 'seq-note' + i, style: 'z-index:6;' });
-    o += txt(cx, gy + 88, cwi, '', { size: 6.4, color: inkC, weight: 600, id: 'seq-more' + i, style: 'z-index:6;' });
+    o += '<div id="seq-cell' + i + '" class="seq-cell" data-seqstep="' + i + '" style="left:' + r1(cx) + 'px;top:' + gy + 'px;width:' + r1(cwi) + 'px;height:' + chh + 'px;"></div>';
+    o += '<div id="seq-play' + i + '" class="seq-play" style="left:' + r1(cx) + 'px;top:' + gy + 'px;width:' + r1(cwi) + 'px;"></div>';
+    o += txt(cx + 12, gy + 12, cwi - 24, String(i + 1), { size: 6.6, color: inkC, weight: 600, align: 'left', id: 'seq-num' + i, style: 'z-index:6;opacity:.6;' });
+    o += txt(cx, gy + 52, cwi, '—', { size: 15, color: inkC, id: 'seq-note' + i, cls: 'seq-note', style: 'z-index:6;' });
+    o += txt(cx, gy + 92, cwi, '', { size: 6.2, color: inkC, weight: 600, id: 'seq-more' + i, style: 'z-index:6;opacity:.7;' });
     ['SLIDE', 'ACCENT', 'REST'].forEach((f, k) => {
-      const fy = gy + 118 + k * 30;
-      o += '<div id="seq-flag' + i + '_' + k + '" data-seqflag="' + k + '" data-seqstep="' + i + '" style="position:absolute;left:' + r1(cx + 8) + 'px;top:' + fy + 'px;width:' + r1(cwi - 16) + 'px;height:24px;border-radius:12px;box-shadow:inset 0 0 0 1.5px ' + inkC + ';cursor:pointer;z-index:7;"></div>';
-      o += txt(cx + 8, fy + 5, cwi - 16, f, { size: 6, color: inkC, weight: 700, style: 'z-index:8;', id: 'seq-flagtxt' + i + '_' + k });
+      const fy = gy + 122 + k * 28;
+      o += '<div id="seq-flag' + i + '_' + k + '" class="seq-flag" data-seqflag="' + k + '" data-seqstep="' + i + '" style="left:' + r1(cx + 6) + 'px;top:' + fy + 'px;width:' + r1(cwi - 12) + 'px;"></div>';
+      o += txt(cx + 30, fy + 5, cwi - 42, f, { size: 5.8, color: inkC, weight: 700, align: 'left', style: 'z-index:8;', id: 'seq-flagtxt' + i + '_' + k, cls: 'seq-flagtxt' });
     });
   }
   // controls: four labelled groups on one line
@@ -797,7 +869,8 @@ function seqPage(w, h) {
     o += button({ x: sx + i * 50, y: ky - 4, w: 36, led: false, label: String(i + 1), lsize: 6.4, id: 'seq.slot', layered: true, domId: 'upper.seq.slot__' + i, value: i, steps: 16 });
   o += L(sx + 16 * 50 + 20, 90, 'LOAD', 'seqLoad', { title: 'Copy the memory into the working sequence' });
   o += L(sx + 16 * 50 + 120, 100, 'STORE', 'seqStore', { title: 'Copy the working sequence into the memory' });
-  o += txt(30, h - 36, w - 60, 'Click a step to select it · SLIDE ties into the next step · ACCENT adds level (DYNAMICS) · REST skips · arp MODE = SEQ and ON to play · HOLD transposes from C4', { size: 6.6, align: 'left', color: INK2, weight: 600 });
+  o += tipRow(30, h - 46, w - 60, [['CLICK A STEP', 'SELECTS IT'], ['SLIDE', 'TIES INTO THE NEXT STEP'], ['ACCENT', 'ADDS LEVEL (DYNAMICS)'],
+    ['REST', 'SKIPS THE STEP'], ['ARP MODE = SEQ, ON', 'PLAYS THE SEQUENCE'], ['HOLD', 'TRANSPOSES FROM C4']]);
   return o;
 }
 
@@ -831,151 +904,208 @@ function altPage(w, h, channel) {
     o += hit({ x, y, w: cardW, h: cardH, id: 'dds1.alt' + ch, layered: true, domId, type: 'combo', ctl: 'button', cursor: 'pointer', title: n,
       data: { value: i, steps: 32, wavecard: 'true' } });
   });
-  o += txt(30, h - 34, w - 60, 'FACTORY CYCLES  ·  CLICK A WAVE TO SELECT  ·  SET DDS 1 WAVEFORM TO ALT TO HEAR IT', { size: 6.8, align: 'left', color: INK2, weight: 600 });
+  o += tipRow(30, h - 44, w - 60, [['CLICK A WAVE', 'SELECTS IT'], ['TO HEAR IT', 'SET DDS 1 WAVEFORM TO ALT'], ['THE 32 WAVES', 'ARE THE FACTORY CYCLES']]);
   return o;
 }
 
-// DDS 1 CUSTOM: a sample page. The waveform display takes the drop and shows START / END as
-// handles you drag; the controls under it are this layer's dds1.smp* parameters.
-const CU_W = 1640, CU_H = 760;
+// DDS 1 CUSTOM: a sampler page (user, 2026-10-05: "more like Ableton's", with slicing). A toolbar
+// (ON, the mode ONE SHOT | LOOP | SLICE, the file, LOAD / CLEAR), one big waveform you drag START /
+// END / LOOP START on - in SLICE it shows each slice with the key that plays it, and clicking a slice
+// plays it - then the controls in four groups: SAMPLE, SLICE, PITCH, OUTPUT. A group that does not
+// apply to the current mode dims (ui/geminus.js sets cu-loop / cu-slice on the page).
+const CU_W = 2300, CU_H = 900;
+// a text segment bound to one value of a choice parameter (or a toggle when value is null)
+function cuSeg(x, y, w, h, id, value, steps, label, domId, title) {
+  const data = value == null ? { on: '', off: '' } : { value, steps, on: '', off: '' };
+  return '<i id="' + domId + '__v" hidden></i>' + hit({ x, y, w, h, id, layered: true, domId, type: value == null ? 'toggle' : 'combo', ctl: 'button', cursor: 'pointer', title, data })
+    .replace('data-juce-type', 'class="cu-seg" data-juce-type').replace(/"><\/div>$/, '">' + esc(label) + '</div>');
+}
 function customPage(w, h) {
   let o = '';
   o += layerLink(w, 'custom-layer-link');
-  const x0 = 30, dw = w - 60, dy = 120, dh = 330;
-  o += txt(x0, 74, dw * 0.7, 'NO SAMPLE', { size: 12, align: 'left', id: 'custom-name', style: 'overflow:hidden;text-overflow:ellipsis;' });
-  o += txt(x0 + dw * 0.5, 80, dw * 0.5, '', { size: 8, align: 'right', color: INK2, weight: 600, id: 'custom-meta' });
+  const x0 = 24, dw = w - 48;
+  // ---- toolbar
+  o += cuSeg(x0, 68, 84, 46, 'dds1.smpOn', null, 0, 'ON', 'custom-on', 'DDS 1 plays the sample instead of its waveform');
+  ['ONE SHOT', 'LOOP', 'SLICE'].forEach((t, i) => { o += cuSeg(x0 + 104 + i * 150, 68, 146, 46, 'dds1.smpLoop', i, 3, t, 'custom-mode__' + i,
+    ['Play START to END once per note', 'Repeat LOOP START to END while the note sounds', 'Chop it: each key from ROOT KEY up plays one slice'][i]); });
+  o += txt(x0 + 600, 70, 900, 'NO SAMPLE', { size: 12, align: 'left', id: 'custom-name', style: 'overflow:hidden;text-overflow:ellipsis;' });
+  o += txt(x0 + 600, 100, 900, '', { size: 7, align: 'left', color: INK2, weight: 600, id: 'custom-meta', ls: 0.12 });
+  o += keyButton(w - 24 - 330, 68, 160, 'LOAD…', 'customBrowse', { h: 46, title: 'Choose an audio file' });
+  o += keyButton(w - 24 - 160, 68, 160, 'CLEAR', 'customClear', { h: 46, title: 'Remove the sample from this layer' });
+  // ---- the waveform
+  const dy = 132, dh = 400;
   o += '<div id="custom-drop" title="Drop an audio file, or click to browse" style="position:absolute;left:' + x0 + 'px;top:' + dy + 'px;width:' + dw + 'px;height:' + dh + 'px;'
-    + 'border-radius:10px;background:rgba(0,0,0,.28);box-shadow:inset 0 0 0 1.5px var(--rule);cursor:pointer;touch-action:none;z-index:5;">'
+    + 'border-radius:8px;background:color-mix(in srgb,var(--pop-bg2) 60%,#000);box-shadow:inset 0 0 0 1px var(--rule);cursor:pointer;touch-action:none;z-index:5;overflow:hidden">'
     + '<canvas id="custom-canvas" width="' + dw * 2 + '" height="' + dh * 2 + '" style="position:absolute;inset:0;width:100%;height:100%;"></canvas>'
     + '<div id="custom-hint" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;pointer-events:none;'
     + 'font-family:' + FONT + ';font-stretch:75%;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:' + INK2 + ';">'
-    + '<div style="font-size:30px;color:' + INK + '">DROP AN AUDIO FILE HERE</div><div style="font-size:16px">WAV · AIFF · FLAC · OGG · MP3 · UP TO 30 S · OR CLICK TO BROWSE</div></div>'
+    + '<div style="font-size:34px;color:' + INK + '">DROP AN AUDIO FILE HERE</div><div style="font-size:17px">A ONE SHOT, A LOOP, OR A PIECE OF A SONG TO SLICE · WAV · AIFF · FLAC · OGG · MP3 · UP TO 90 S · OR CLICK TO BROWSE</div></div>'
     + '<input id="custom-file" type="file" accept=".wav,.aif,.aiff,.flac,.ogg,.mp3,audio/*" hidden></div>';
-  // controls: one line in four groups
-  const cy = dy + dh + 44, kd = 76, ly = cy + kd + 14;
-  const vals = (x, id) => txt(x - 40, ly + 26, kd + 80, '', { size: 9, color: INK, id });
-  o += sect(x0, cy - 30, 190, 'PLAY', { align: 'left' });
-  o += button({ x: x0 + 8, y: cy + 14, w: 44, label: 'ON', id: 'dds1.smpOn', layered: true, domId: 'custom-on', ly, title: 'DDS 1 plays the sample instead of its waveform' });
-  o += button({ x: x0 + 76, y: cy + 14, w: 44, label: 'ONE SHOT', id: 'dds1.smpLoop', layered: true, domId: 'custom-mode__0', value: 0, steps: 2, ly, title: 'Play START to END once per note' });
-  o += button({ x: x0 + 144, y: cy + 14, w: 44, label: 'LOOP', id: 'dds1.smpLoop', layered: true, domId: 'custom-mode__1', value: 1, steps: 2, ly, title: 'Repeat START to END while the note sounds' });
-  const rx = x0 + 250;
-  o += sect(rx, cy - 30, 370, 'REGION', { align: 'left' });
-  o += knob({ x: rx + 10, y: cy, d: kd, v: 'cream', val: 0, ticks: 11, label: 'START', ly, id: 'dds1.smpStart', layered: true, domId: 'custom-start', title: 'Where each note starts playing' }) + vals(rx + 10, 'custom-start-val');
-  o += knob({ x: rx + 140, y: cy, d: kd, v: 'cream', val: 0, ticks: 11, label: 'LOOP START', ly, id: 'dds1.smpLoopStart', layered: true, domId: 'custom-loop', title: 'LOOP jumps back here from END (START plays once)' }) + vals(rx + 140, 'custom-loop-val');
-  o += knob({ x: rx + 270, y: cy, d: kd, v: 'cream', val: 1, ticks: 11, label: 'END', ly, id: 'dds1.smpEnd', layered: true, domId: 'custom-end' }) + vals(rx + 270, 'custom-end-val');
-  const px = rx + 430;
-  o += sect(px, cy - 30, 360, 'PITCH', { align: 'left' });
-  o += knob({ x: px + 10, y: cy, d: kd, v: 'cream', val: 60 / 127, ticks: 11, label: 'ROOT KEY', ly, id: 'dds1.smpRoot', layered: true, domId: 'custom-root', hitType: 'combo', hitData: { steps: 128 },
-    title: 'The note the sample was recorded at: that key plays it at its own pitch' }) + vals(px + 10, 'custom-root-val');
-  o += keyButton(px + 116, cy + 2, 44, '◀', 'customRootDown', { title: 'Root key down a semitone' });
-  o += keyButton(px + 166, cy + 2, 44, '▶', 'customRootUp', { title: 'Root key up a semitone' });
-  o += keyButton(px + 116, cy + 54, 94, 'LEARN', 'customLearn', { domId: 'act-customLearn', title: 'The next key you play becomes the root key' });
-  o += knob({ x: px + 250, y: cy, d: kd, v: 'cream', val: 0.5, ticks: 11, label: 'FINE', ly, id: 'dds1.smpFine', layered: true, domId: 'custom-fine', title: 'Fine tune, -100 to +100 cents' }) + vals(px + 250, 'custom-fine-val');
-  const lx = px + 400;
-  o += sect(lx, cy - 30, 110, 'OUTPUT', { align: 'left' });
-  o += knob({ x: lx + 16, y: cy, d: kd, v: 'cream', val: 0.8, ticks: 11, label: 'LEVEL', ly, id: 'dds1.smpLevel', layered: true, domId: 'custom-level', title: 'Sample volume (0 dB at 8, up to +4 dB)' }) + vals(lx + 16, 'custom-level-val');
-  const fx2 = lx + 150;
-  o += sect(fx2, cy - 30, w - 30 - fx2, 'FILE', { align: 'left' });
-  o += keyButton(fx2, cy + 2, 170, 'LOAD…', 'customBrowse', { title: 'Choose an audio file' });
-  o += keyButton(fx2, cy + 54, 170, 'CLEAR', 'customClear', { title: 'Remove the sample from this layer' });
-  o += txt(fx2 + 190, cy + 6, w - 30 - fx2 - 190, '', { size: 7.4, align: 'left', color: INK2, weight: 600, id: 'custom-status', style: 'white-space:normal;line-height:1.3;' });
-  o += hrule(30, h - 60, w - 60, 'var(--rule)', 1);
-  o += txt(30, h - 44, w - 60, 'ROOT KEY = THE NOTE THE SAMPLE WAS RECORDED AT  ·  DRAG THE HANDLES: START PLAYS ONCE, LOOP REPEATS LOOP START → END  ·  BINAURAL PLAYS A STEREO FILE LEFT / RIGHT  ·  SUPER, FILTER, ENVELOPES AND FX STILL APPLY', { size: 6.6, align: 'left', color: INK2, weight: 600 });
+  // ---- controls: four groups on one line
+  const cy = dy + dh + 36, ky = cy + 40, kd = 70, ly = ky + kd + 12;
+  const vals = (x, id) => txt(x - 50, ly + 24, kd + 100, '', { size: 8.4, color: INK, id });
+  const group = (cls, inner) => '<div class="cu-group ' + cls + '">' + inner + '</div>';
+  let g = sect(x0, cy, 520, 'sample', { align: 'left' });
+  g += knob({ x: x0 + 20, y: ky, d: kd, v: 'cream', val: 0, label: 'START', ly, id: 'dds1.smpStart', layered: true, domId: 'custom-start', title: 'Where the region starts' }) + vals(x0 + 20, 'custom-start-val');
+  g += knob({ x: x0 + 190, y: ky, d: kd, v: 'cream', val: 1, label: 'END', ly, id: 'dds1.smpEnd', layered: true, domId: 'custom-end', title: 'Where the region ends' }) + vals(x0 + 190, 'custom-end-val');
+  o += group('', g);
+  o += group('cu-loop-only', knob({ x: x0 + 360, y: ky, d: kd, v: 'cream', val: 0, label: 'LOOP START', ly, id: 'dds1.smpLoopStart', layered: true, domId: 'custom-loop', title: 'LOOP jumps back here from END (START plays once)' }) + vals(x0 + 360, 'custom-loop-val'));
+  const sx = x0 + 580;
+  g = sect(sx, cy, 560, 'slice', { align: 'left' });
+  ['AUTO', '4', '8', '16', '32', '64'].forEach((t, i) => { g += cuSeg(sx + i * 66, ky + 8, 62, 46, 'dds1.smpSlices', i, 6, t, 'custom-slices__' + i, i ? 'Cut the region into ' + t + ' equal slices' : 'Cut at the transients'); });
+  g += txt(sx, ky + 66, 400, 'SLICES', { size: 7.6, align: 'left', color: INK });
+  g += txt(sx, ly + 24, 400, '', { size: 8.4, align: 'left', color: INK, id: 'custom-slice-count' });
+  g += knob({ x: sx + 440, y: ky, d: kd, v: 'cream', val: 0.5, label: 'SENSITIVITY', ly, id: 'dds1.smpSense', layered: true, domId: 'custom-sense', title: 'AUTO: how many transients cut a slice' }) + vals(sx + 440, 'custom-sense-val');
+  o += group('cu-slice-only', g);
+  const px = sx + 620;
+  g = sect(px, cy, 470, 'pitch', { align: 'left' });
+  g += knob({ x: px + 20, y: ky, d: kd, v: 'cream', val: 60 / 127, label: 'ROOT KEY', ly, id: 'dds1.smpRoot', layered: true, domId: 'custom-root', hitType: 'combo', hitData: { steps: 128 },
+    title: 'The note the sample was recorded at. In SLICE: the key that plays the first slice' }) + vals(px + 20, 'custom-root-val');
+  g += keyButton(px + 120, ky + 2, 50, '◀', 'customRootDown', { h: 40, title: 'Root key down a semitone' });
+  g += keyButton(px + 176, ky + 2, 50, '▶', 'customRootUp', { h: 40, title: 'Root key up a semitone' });
+  g += keyButton(px + 120, ky + 52, 106, 'LEARN', 'customLearn', { h: 40, domId: 'act-customLearn', title: 'The next key you play becomes the root key' });
+  g += knob({ x: px + 300, y: ky, d: kd, v: 'cream', val: 0.5, label: 'FINE', ly, id: 'dds1.smpFine', layered: true, domId: 'custom-fine', title: 'Fine tune, -100 to +100 cents' }) + vals(px + 300, 'custom-fine-val');
+  o += group('', g);
+  const lx = px + 530;
+  g = sect(lx, cy, w - 24 - lx, 'output', { align: 'left' });
+  g += knob({ x: lx + 20, y: ky, d: kd, v: 'cream', val: 0.8, label: 'LEVEL', ly, id: 'dds1.smpLevel', layered: true, domId: 'custom-level', title: 'Sample volume (0 dB at 8, up to +4 dB)' }) + vals(lx + 20, 'custom-level-val');
+  g += txt(lx + 140, ky + 6, w - 24 - lx - 140, '', { size: 7.4, align: 'left', color: INK2, weight: 600, id: 'custom-status', style: 'white-space:normal;line-height:1.35;' });
+  o += group('', g);
+  o += hrule(24, h - 66, w - 48, 'var(--rule)', 1);
+  o += tipRow(24, h - 54, w - 48, [['DRAG THE FLAGS', 'START · END · LOOP START'], ['SLICE', 'ONE SLICE PER KEY FROM ROOT KEY UP'], ['CLICK A SLICE', 'HEARS IT'],
+    ['AUTO', 'CUTS AT THE HITS · SENSITIVITY: HOW MANY'], ['STILL APPLY', 'SUPER, FILTER, ENVELOPES, FX']]);
   return o;
 }
 
-// Patch browser, laid out as three numbered steps for new users:
-// 1 choose a folder  ·  2 click a sound to load it  ·  3 save your own sound.
-// Patch browser, after the user's reference (Arturia's Explore): search, TYPES / BANKS filters and
-// a sortable table of ♥ / NAME / TYPE / BANK. A bank IS a folder inside the patch folder, so a new
-// bank name makes a folder, and a folder dropped in by hand shows up as a bank.
-const PB_W = 2120, PB_H = 940;
-function patchPage(w, h) {
-  const inputCss = 'box-sizing:border-box;border:1.5px solid var(--rule);border-radius:8px;background:var(--field);color:' + INK
-    + ';font:700 19px ' + FONT + ';font-stretch:75%;letter-spacing:.04em;outline:none;z-index:5;padding:6px 14px;';
-  const pill = (x, y, wd, label, action, opt) => keyButton(x, y, wd, label, action, Object.assign({ link: true, cls: 'pill', size: 8.6, h: 40 }, opt || {}));
-  const chip = (x, y, wd, id, label, title) => '<div class="pb-chip" id="' + id + '" title="' + esc(title || '') + '" style="position:absolute;left:' + x + 'px;top:' + y + 'px;width:' + wd + 'px;height:40px;'
-    + 'line-height:40px;text-align:center;border:1.5px solid var(--rule);border-radius:20px;cursor:pointer;z-index:6;'
-    + 'font:700 17px ' + FONT + ';font-stretch:75%;letter-spacing:.06em;color:var(--ink)">' + label + '</div>';
-  const listW = w - 430, rx = w - 380, rw = 350;
-  let o = '';
-
-  // ---- title, search
-  o += txt(30, 58, 300, 'EXPLORE', { size: 17, align: 'left', ls: 0.02 });
-  o += '<input id="patch-search" placeholder="Search patches" spellcheck="false" style="position:absolute;left:250px;top:56px;width:' + (listW - 250) + 'px;height:46px;' + inputCss + '">';
-  o += '<div id="patch-clear" class="link" style="position:absolute;left:' + (listW - 150) + 'px;top:56px;width:130px;height:46px;line-height:46px;text-align:right;padding-right:14px;cursor:pointer;z-index:7;font:700 15px ' + FONT + ';font-stretch:75%;letter-spacing:.06em">CLEAR ALL</div>';
-
-  // ---- filter chips and the count
-  o += chip(30, 122, 150, 'patch-f-type', 'TYPES', 'Filter by type');
-  o += chip(196, 122, 150, 'patch-f-bank', 'BANKS', 'Filter by bank');
-  o += chip(362, 122, 190, 'patch-f-fav', '♥  FAVOURITES', 'Show only favourites');
-  o += txt(listW - 320, 132, 320, '', { size: 8.4, align: 'right', color: INK2, weight: 600, id: 'patch-count' });
-
-  // ---- table
-  const hy = 186, ly = 224;
-  const head = (x, wd, label, key, align) => '<div class="pb-head" data-sort="' + key + '" style="position:absolute;left:' + x + 'px;top:' + hy + 'px;width:' + wd + 'px;height:34px;line-height:34px;cursor:pointer;z-index:6;'
-    + 'text-align:' + (align || 'left') + ';font:700 17px ' + FONT + ';font-stretch:75%;letter-spacing:.08em;color:var(--ink)">' + label + '<span class="pb-arrow"></span></div>';
-  o += head(30, 46, '♥', 'fav', 'center') + head(92, 520, 'NAME', 'name') + head(628, 360, 'TYPE', 'type') + head (1004, 360, 'BANK', 'bank');
-  o += hrule(30, hy + 40, listW - 30, 'var(--rule)', 1);
-  o += '<div id="patch-list" style="position:absolute;left:24px;top:' + ly + 'px;width:' + (listW - 18) + 'px;height:' + (h - ly - 40) + 'px;overflow-y:auto;overflow-x:hidden;z-index:5;"></div>';
-  o += vrule(w - 410, 56, h - 96);
-
-  // ---- save panel
-  o += txt(rx, 58, rw, 'SAVE THIS SOUND', { size: 9.4, align: 'left' });
-  const field = (y, id, label, placeholder, menuId, menuTitle) =>
-    txt(rx, y, rw, label, { size: 7, align: 'left', color: INK2, weight: 600 })
-    + '<input id="' + id + '" placeholder="' + placeholder + '" spellcheck="false" maxlength="40" style="position:absolute;left:' + rx + 'px;top:' + (y + 22) + 'px;width:' + (rw - 52) + 'px;height:44px;' + inputCss + '">'
-    + '<div class="pb-menu-btn" id="' + menuId + '" title="' + menuTitle + '" style="position:absolute;left:' + (rx + rw - 44) + 'px;top:' + (y + 22) + 'px;width:44px;height:44px;line-height:44px;text-align:center;'
-    + 'border:1.5px solid var(--rule);border-radius:8px;cursor:pointer;z-index:6;font:700 20px ' + FONT + ';color:var(--ink)">▾</div>';
-  o += field(104, 'patch-name-input', 'NAME', 'Patch name', 'patch-name-menu', 'Patches already here');
-  o += field(190, 'patch-type-input', 'TYPE', 'e.g. LEAD, PAD, or your own', 'patch-type-menu', 'Pick a type');
-  o += field(276, 'patch-bank-input', 'BANK', 'Folder in Patches, or a new name', 'patch-bank-menu', 'Pick a bank');
-  o += pill(rx, 366, rw, 'SAVE', 'patchSave', { cls: 'pill primary', size: 9.4, domId: 'act-patchSave2', title: 'Save into this bank under this name' });
-  o += pill(rx, 418, rw, 'SAVE A COPY AS…', 'patchSaveAs', { title: 'Choose where to save and under what name' });
-  o += hrule(rx, 480, rw, 'var(--rule)', 1);
-  o += txt(rx, 494, rw, 'MORE', { size: 7, align: 'left', color: INK2, weight: 600 });
-  o += pill(rx, 518, (rw - 12) / 2, 'OPEN A FILE…', 'patchOpen', { title: 'Load any .gpatch file' });
-  o += pill(rx + (rw + 12) / 2, 518, (rw - 12) / 2, 'REFRESH', 'patchRefresh', { title: 'Re-read the folder' });
-  o += pill(rx, 570, (rw - 12) / 2, 'INIT UPPER', 'initUpper', { title: 'Reset the upper layer to the init sound' });
-  o += pill(rx + (rw + 12) / 2, 570, (rw - 12) / 2, 'INIT LOWER', 'initLower', { title: 'Reset the lower layer to the init sound' });
-  o += pill(rx, 622, (rw - 12) / 2, 'MY PATCHES', 'patchFolderUser', { title: 'Documents / 002 / Patches' });
-  o += pill(rx + (rw + 12) / 2, 622, (rw - 12) / 2, 'OTHER FOLDER…', 'patchFolderChoose', { title: 'Pick any folder that has .gpatch files' });
-  o += txt(rx, 690, rw, 'FOLDER', { size: 7, align: 'left', color: INK2, weight: 600 });
-  o += '<div id="patch-folder-path" style="position:absolute;left:' + rx + 'px;top:712px;width:' + rw + 'px;height:56px;color:var(--ink);font:600 13px/1.35 ' + FONT + ';font-stretch:75%;letter-spacing:.02em;overflow:hidden;word-break:break-all;"></div>';
-  o += '<div id="patch-status" style="position:absolute;left:' + rx + 'px;top:' + (h - 120) + 'px;width:' + rw + 'px;height:80px;color:var(--ink);font:600 13px/1.35 ' + FONT + ';font-stretch:75%;letter-spacing:.02em;overflow:hidden;word-break:break-all;"></div>';
-  return o;
+// Patch browser: a full-screen page inside the plugin, after Arturia's (user, 2026-10-05). A top bar
+// (back, search, liked, count), a sidebar (ALL SOUNDS / LIKED / PACKS, your packs with their covers,
+// the folder tools), the sound list or the pack grid in the middle, and on the right the sound you are
+// on - its pack's cover (click it to change the image), name, type, pack, heart - with SAVE under it.
+// A pack IS a folder inside the patch folder; its cover is a cover.png / .jpg in that folder.
+// The layout is a CSS grid, so the page fills both the full panel and the desktop layout; in the full
+// panel it is drawn at 1/PB_Z size and scaled up, so its type stays readable on the wide canvas.
+const PB_Z = 1.4;
+const HEART = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 20.5 4.2 12.9A4.9 4.9 0 0 1 12 6.6a4.9 4.9 0 0 1 7.8 6.3Z" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>';
+const CHEV = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 9.5 12 15.5 18 9.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+function patchBrowser() {
+  const act = (action, label, cls, id, title) => '<div class="link ' + cls + '" data-action="' + action + '" id="' + (id || 'act-' + action) + '"' + (title ? ' title="' + esc(title) + '"' : '') + '>' + label + '</div>';
+  const field = (id, label, placeholder, menuId, menuTitle) => '<label class="pb-field"><span>' + label + '</span><input id="' + id + '" class="pb-input" placeholder="' + placeholder + '" spellcheck="false" maxlength="40">'
+    + '<i class="pb-menu-btn" id="' + menuId + '" title="' + menuTitle + '">' + CHEV + '</i></label>';
+  let o = '<div id="pop-patches" class="pop pb-pop-page" hidden><div class="pop-panel pb-page">';
+  // ---- top bar
+  o += '<header class="pb-top">'
+    + '<div class="pb-back" data-close="pop-patches" title="Back to the panel (Esc)"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M14.5 6 8.5 12 14.5 18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>002</div>'
+    + '<div class="pb-title">SOUNDS</div>'
+    + '<label class="pb-search"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="m15 15 5 5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>'
+    + '<input id="patch-search" placeholder="Search names, types and packs" spellcheck="false"></label>'
+    + '<div class="pb-chip" id="patch-f-fav" title="Show only the sounds you like">' + HEART + '<span>LIKED</span></div>'
+    + '<div id="patch-clear" class="pb-textbtn" title="Show everything again">RESET FILTERS</div>'
+    + '<div id="patch-count" class="pb-count"></div>'
+    + '<div data-close="pop-patches" class="pop-close" title="Close (Esc)"><svg width="36" height="36" viewBox="0 0 36 36"><path d="M12.5 12.5 L23.5 23.5 M23.5 12.5 L12.5 23.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/></svg></div>'
+    + '</header>';
+  // ---- sidebar
+  o += '<nav class="pb-side">'
+    + '<div class="pb-nav" data-view="all">ALL SOUNDS<span id="pb-n-all"></span></div>'
+    + '<div class="pb-nav" data-view="liked">LIKED<span id="pb-n-liked"></span></div>'
+    + '<div class="pb-nav" data-view="packs">PACKS<span id="pb-n-packs"></span></div>'
+    + '<div class="pb-side-h">YOUR PACKS</div><div id="patch-packlist" class="pb-packlist"></div>'
+    + '<div class="pb-side-foot"><div id="patch-folder-path" class="pb-note" title=""></div><div class="pb-links">'
+    + act('patchFolderUser', 'MY PATCHES', 'pb-l', null, 'Documents / 002 / Patches') + act('patchFolderChoose', 'OTHER FOLDER…', 'pb-l', null, 'Pick any folder that has .gpatch files')
+    + act('patchOpen', 'OPEN FILE…', 'pb-l', null, 'Load any .gpatch file') + act('patchRefresh', 'REFRESH', 'pb-l', null, 'Re-read the folder')
+    + act('initUpper', 'INIT UPPER', 'pb-l', null, 'Reset the upper layer to the init sound') + act('initLower', 'INIT LOWER', 'pb-l', null, 'Reset the lower layer to the init sound')
+    + '</div></div></nav>';
+  // ---- middle: the list, or the pack grid
+  o += '<main class="pb-main">'
+    + '<section class="pb-view" id="pb-view-list"><div id="patch-packhead" class="pb-packhead" hidden></div><div id="patch-types" class="pb-types"></div>'
+    + '<div class="pb-grid pb-thead"><span class="pb-head" data-sort="fav" title="Sort by liked">' + HEART + '<span class="pb-arrow"></span></span>'
+    + '<span class="pb-head" data-sort="name">NAME<span class="pb-arrow"></span></span><span class="pb-head" data-sort="type">TYPE<span class="pb-arrow"></span></span><span class="pb-head" data-sort="bank">PACK<span class="pb-arrow"></span></span></div>'
+    + '<div id="patch-list" class="pb-list" tabindex="0"></div></section>'
+    + '<section class="pb-view" id="pb-view-packs" hidden><div id="patch-packs" class="pb-packgrid"></div></section>'
+    + '</main>';
+  // ---- right: the sound you are on, and saving
+  o += '<aside class="pb-detail">'
+    + '<div id="patch-art" class="pb-art" title="Click to change this pack\'s image"></div>'
+    + '<div class="pb-cur"><div id="patch-cur-name" class="pb-cur-name">INIT</div><div id="patch-cur-fav" class="pb-fav pb-cur-fav" title="Like this sound">' + HEART + '</div></div>'
+    + '<div id="patch-cur-meta" class="pb-cur-meta"></div>'
+    + '<div class="pb-row">' + act('patchPrev', 'PREV', 'pill', 'act-patchPrev2', 'Previous sound in this list (or arrow up)') + act('patchNext', 'NEXT', 'pill', 'act-patchNext2', 'Next sound in this list (or arrow down)') + '</div>'
+    + '<div class="pb-save"><div class="pb-side-h">SAVE THIS SOUND</div>'
+    + field('patch-name-input', 'NAME', 'Patch name', 'patch-name-menu', 'Sounds already in this list')
+    + field('patch-type-input', 'TYPE', 'Lead, pad, or your own', 'patch-type-menu', 'Pick a type')
+    + field('patch-bank-input', 'PACK', 'A pack, or a new name', 'patch-bank-menu', 'Pick a pack')
+    + '<div class="pb-row">' + act('patchSave', 'SAVE', 'pill primary', 'act-patchSave2', 'Save into this pack under this name') + act('patchSaveAs', 'SAVE A COPY AS…', 'pill', null, 'Choose where to save and under what name') + '</div>'
+    + '<div id="patch-status" class="pb-note pb-status" role="status"></div></div>'
+    + '</aside>';
+  return o + '</div></div>';
 }
 
-function settingsPage(w, h) {
+// A pop-over's foot legend, as key / meaning pairs in columns. The single 6.6 px line of
+// middle-dot-separated clauses this replaces was there on five pages and was unreadable on all
+// of them. Columns pack to the longest pair and never spread wider than the space allows.
+function tipRow(x, y, w, pairs) {
+  const widest = Math.max(...pairs.map(([k, v]) => Math.max(wText(k, 6.6), wText(v, 8))));
+  const pitch = Math.min(Math.round(w / pairs.length), Math.round(widest + 48));
+  return pairs.map(([k, v], i) => txt(x + i * pitch, y, pitch - 16, k, { size: 6.6, align: 'left', color: INK2, weight: 600 })
+    + txt(x + i * pitch, y + 20, pitch - 16, v, { size: 8, align: 'left', color: INK, weight: 700 })).join('');
+}
+
+// SETTINGS: six columns on one grid. Every column starts on the same heading line, its controls
+// centre on the same axis, and every knob prints its value under its label. The column maths
+// derives from w, so both page margins stay equal and no heading rule runs off the panel (the
+// hand-placed columns this replaces overlapped at DISPLAY and clipped THEME 100 px past the edge).
+const SET_W = 2200, SET_H = 400;
+function settingsPage(w) {
   let o = '';
-  const col = (x, title) => { o += sect(x, 70, 300, title, { align: 'left' }); };
-  col(30, 'TUNING');
-  o += knob({ x: 50, y: 120, d: 60, v: 'cream', val: 0.5, ticks: 11, label: 'FINE TUNE', ly: 200, id: 'global.fineTune', minmax: ['-100', '+100'] });
-  o += knob({ x: 190, y: 120, d: 60, v: 'cream', val: 0.5, ticks: 25, label: 'TRANSPOSE', ly: 200, id: 'global.transpose', minmax: ['-12', '+12'] });
-  col(370, 'KEYBOARD');
-  o += knob({ x: 390, y: 120, d: 60, v: 'cream', val: 0.47, ticks: 11, label: 'SPLIT POINT', ly: 200, id: 'perf.splitPoint', minmax: ['C-2', 'G8'] });
-  o += txt(360, 226, 130, '', { size: 7.4, color: INK2, weight: 600, id: 'split-readout' });
-  o += keyButton(500, 130, 110, 'LEARN', 'splitLearn', { title: 'Next key played sets the split point' });
-  col(660, 'MIDI');
-  o += knob({ x: 680, y: 120, d: 60, v: 'cream', val: 0, ticks: 16, label: 'CHANNEL', ly: 200, id: 'global.midiChannel', minmax: ['1', '16'] });
-  o += txt(650, 226, 130, '', { size: 7.4, color: INK2, weight: 600, id: 'midich-readout' });
-  o += button({ x: 800, y: 132, w: 44, label: 'CC RX', id: 'global.ccRx', ly: 176 });
-  o += button({ x: 870, y: 132, w: 44, label: 'HOST CLOCK', id: 'global.clockRx', ly: 176, title: 'Arp / seq follow the host tempo and transport' });
-  o += txt(650, 250, 320, 'LOWER LAYER = CHANNEL + 1', { size: 6.6, align: 'left', color: INK2, weight: 600 });
-  col(1000, 'ENGINE');
-  o += txt(1000, 110, 300, 'OVERSAMPLING  2×', { size: 8, align: 'left' });
-  o += txt(1000, 134, 300, 'BINAURAL VOICES  10 / 5 PER LAYER', { size: 7, align: 'left', color: INK2, weight: 600 });
-  o += keyButton(1000, 160, 150, 'PANIC', 'panic', { title: 'All notes off' });
-  o += keyButton(1160, 160, 150, 'RESET ALL', 'resetAll', { title: 'Both layers to init, performance to single upper' });
-  col(1340, 'DISPLAY');
-  o += keyButton(1340, 130, 210, 'DESKTOP LAYOUT', 'toggleDesktopLayout', { domId: 'act-desktop-layout', title: 'Larger controls for laptop screens: one engine at a time, no keyboard' });
-  o += txt(1340, 200, 210, 'OFF', { size: 7.4, color: INK2, weight: 600, id: 'desktop-layout-state' });
-  o += txt(1340, 226, 210, 'FULL PANEL WITH KEYBOARD', { size: 6.2, color: INK2, weight: 600, id: 'desktop-layout-detail' });
-  col(1600, 'THEME');
-  o += keyButton(1600, 120, 170, 'GEMINI', 'themeGemini', { domId: 'act-theme-gemini', title: 'The original hardware colours (default)' });
-  o += keyButton(1600, 172, 170, 'SUPER SIX', 'themeSuper6', { domId: 'act-theme-super6', title: 'Blue and brown' });
-  o += hrule(30, 300, w - 60, 'var(--rule)', 1);
-  o += txt(30, 316, w - 60, 'SHIFT (KEY OR PANEL) REVEALS SECONDARY FUNCTIONS  ·  CTRL-DRAG = FINE  ·  DOUBLE-CLICK = DEFAULT  ·  RIGHT-CLICK A CONTROL = ROUTE MODULATION TO IT  ·  WHEEL STEPS', { size: 6.8, align: 'left', color: INK2, weight: 600 });
+  const M = 40, GUT = 32, N = 6;
+  const CW = Math.round((w - 2 * M - GUT * (N - 1)) / N);
+  const CX = (i) => M + i * (CW + GUT);
+  const HALF = Math.round((CW - 20) / 2);          // two controls side by side inside a column
+  const RX = (i) => CX(i) + CW - HALF;             // the column's right half
+  const HY = 72;                                   // heading
+  const KY = 126, KD = 60;                         // knob row 126…186, axis 156
+  const LY = 200, VY = 226;                        // label, then the live value
+  const BY = 136, BH = 40;                         // a 40 px key centres on the knob axis
+  const col = (i, title) => { o += sect(CX(i), HY, CW, title, { align: 'left' }); };
+  // knob + label + live read-out, stacked inside one half-column
+  const dial = (x, label, readout, k) => knob(Object.assign({ x: x + (HALF - KD) / 2, y: KY, d: KD, v: 'cream', label, ly: LY, lw: HALF }, k))
+    + txt(x, VY, HALF, '', { size: 8, color: INK2, weight: 600, id: readout });
+  // square toggle with its legend beside it; stacked legends cannot collide the way centred ones did
+  const sideToggle = (x, y, id, label, title) => button({ x, y, w: 36, id, title })
+    + txt(x + 48, y + 7, HALF - 48, label, { size: 7.6, align: 'left', color: INK, weight: 700 });
+
+  col(0, 'TUNING');
+  o += dial(CX(0), 'FINE TUNE', 'finetune-readout', { val: 0.5, id: 'global.fineTune' });
+  o += dial(RX(0), 'TRANSPOSE', 'transpose-readout', { val: 0.5, id: 'global.transpose' });
+
+  col(1, 'KEYBOARD');
+  o += dial(CX(1), 'SPLIT POINT', 'split-readout', { val: 0.47, id: 'perf.splitPoint' });
+  o += keyButton(RX(1), BY, HALF, 'LEARN', 'splitLearn', { h: BH, title: 'Next key played sets the split point' });
+  o += txt(RX(1), VY, HALF, 'NEXT KEY PLAYED', { size: 6.6, color: INK2, weight: 600 });
+
+  col(2, 'MIDI');
+  o += dial(CX(2), 'CHANNEL', 'midich-readout', { val: 0, id: 'global.midiChannel' });
+  o += sideToggle(RX(2), KY, 'global.ccRx', 'CC RX', 'Receive MIDI CC');
+  o += sideToggle(RX(2), KY + 48, 'global.clockRx', 'HOST CLOCK', 'Arp / seq follow the host tempo and transport');
+  o += txt(CX(2), VY + 34, CW, 'LOWER LAYER = CHANNEL + 1', { size: 6.6, align: 'left', color: INK2, weight: 600 });
+
+  col(3, 'ENGINE');
+  o += txt(CX(3), 120, CW, 'OVERSAMPLING  2×', { size: 8, align: 'left' });
+  o += txt(CX(3), 146, CW, 'BINAURAL VOICES  10 / 5 PER LAYER', { size: 7, align: 'left', color: INK2, weight: 600 });
+  o += keyButton(CX(3), 188, HALF, 'PANIC', 'panic', { h: BH, title: 'All notes off' });
+  o += keyButton(RX(3), 188, HALF, 'RESET ALL', 'resetAll', { h: BH, title: 'Both layers to init, performance to single upper' });
+
+  col(4, 'DISPLAY');
+  o += keyButton(CX(4), BY, CW, 'DESKTOP LAYOUT', 'toggleDesktopLayout', { h: BH, domId: 'act-desktop-layout', title: 'Larger controls for laptop screens: one engine at a time, no keyboard' });
+  o += txt(CX(4), 192, CW, 'OFF', { size: 8, color: INK, weight: 700, id: 'desktop-layout-state' });
+  o += txt(CX(4), 216, CW, 'FULL PANEL WITH KEYBOARD', { size: 6.6, color: INK2, weight: 600, id: 'desktop-layout-detail' });
+
+  col(5, 'THEME');
+  o += keyButton(CX(5), BY, CW, 'GEMINI', 'themeGemini', { h: BH, domId: 'act-theme-gemini', title: 'The original hardware colours (default)' });
+  o += keyButton(CX(5), BY + 52, CW, 'SUPER SIX', 'themeSuper6', { h: BH, domId: 'act-theme-super6', title: 'Blue and brown' });
+  o += keyButton(CX(5), BY + 104, CW, 'DARK', 'themeDark', { h: BH, domId: 'act-theme-dark', title: 'GEMINI inverted, in grey: black panel, grey insets, no orange' });
+
+  o += hrule(M, 300, w - 2 * M, 'var(--rule)', 1);
+  o += tipRow(M, 322, w - 2 * M, [['SHIFT', 'SECONDARY FUNCTIONS'], ['CTRL-DRAG', 'FINE'], ['DOUBLE-CLICK', 'DEFAULT'],
+    ['RIGHT-CLICK', 'ROUTE MODULATION'], ['WHEEL', 'STEP BY STEP']]);
   return o;
 }
 
@@ -983,9 +1113,47 @@ function settingsPage(w, h) {
 // reference, a layer fader under each slot, and the grouped type picker.
 // Knobs, faders and power keys are the photographed assets; the display is a screen (canvas).
 const FXW = 3000, FXH = 1040;
+// The picker's picture of each effect: a small drawing of what it does, in that module's own colours
+// (house modules follow the theme). 64 x 64 viewBox, flat strokes and fills only.
+function fxArt(f) {
+  const k = SKINS[(f && SKIN_OF[f.id]) || 'house'], bg = k.bg, ink = k.ink, acc = k.accent, dim = k.ink2;
+  const L = (d, c, w, o) => '<path d="' + d + '" fill="none" stroke="' + c + '" stroke-width="' + (w || 2.5) + '" stroke-linecap="round" stroke-linejoin="round"' + (o ? ' opacity="' + o + '"' : '') + '/>';
+  const C = (x, y, r, c, o) => '<circle cx="' + x + '" cy="' + y + '" r="' + r + '" fill="' + c + '"' + (o ? ' opacity="' + o + '"' : '') + '/>';
+  const R = (x, y, w, h, c, o) => '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" rx="1" fill="' + c + '"' + (o ? ' opacity="' + o + '"' : '') + '/>';
+  const wave = (fn, x0 = 8, x1 = 56) => { let d = ''; for (let x = x0; x <= x1; x += 1) d += (x === x0 ? 'M' : 'L') + x + ' ' + fn((x - x0) / (x1 - x0)).toFixed(1); return d; };
+  const sin = (t, cyc) => Math.sin(t * Math.PI * 2 * cyc);
+  let a = '';
+  switch (f ? f.id : 'none') {
+    case 'none': a = L('M20 20 44 44M44 20 20 44', dim, 3); break;
+    case 'psdelay': for (let i = 0; i < 5; i++) a += C(12 + i * 10, 46 - i * 7, 6 - i, i ? ink : acc, 1 - i * 0.15); break;
+    case 'revocean': for (let i = 0; i < 5; i++) a += L(wave((t) => 20 + i * 8 - Math.exp(-t * 3) * 9 * (0.5 + 0.5 * sin(t + i * 0.13, 2))), i === 3 ? acc : ink, 2, 0.5 + i * 0.12); break;
+    case 'tapeecho': for (let i = 0; i < 6; i++) { const hh = 18 * Math.pow(0.75, i); a += R(10 + i * 8, i % 2 ? 32 : 32 - hh, 5, hh, i ? ink : acc); } a += L('M8 32H56', dim, 1); break;
+    case 'convolver': a += R(10, 12, 4, 40, acc); for (let i = 0; i < 18; i++) { const hh = 34 * Math.exp(-i / 6) * (0.5 + 0.5 * Math.abs(Math.sin(i * 2.7))); a += R(16 + i * 2.3, 52 - hh, 1.4, hh, ink); } break;
+    case 'tuba': a += L('M22 52V24a10 10 0 0 1 20 0v28Z', ink, 2.5) + L('M28 44 30 30 32 44 34 30 36 44', acc, 2.5) + L('M24 56v4M30 56v4M34 56v4M40 56v4', dim, 2); break;
+    case 'saturn': [[8, 26], [26, 14], [44, 22]].forEach(([x, y], i) => { a += R(x, y, 14, 52 - y, i === 1 ? acc : ink, i === 1 ? 1 : 0.85); a += L(wave((t) => y - 3 - 2 * sin(t, 2), x, x + 14), i === 1 ? acc : ink, 2); }); break;
+    case 'distortion': a += L('M8 32H56', dim, 1) + L(wave((t) => 32 - Math.max(-1, Math.min(1, 2.4 * sin(t, 1.5))) * 16), acc, 3); break;
+    case 'bitcrusher': a += L(wave((t) => 32 - Math.round(sin(t, 1) * 4) / 4 * 18), acc, 3) + L(wave((t) => 32 - sin(t, 1) * 18), dim, 1.2, 0.6); break;
+    case 'vulf': a += L('M8 18 16 44 18 18 26 44 28 18 36 44 38 18 46 44 48 18 56 44', acc, 2.5) + L('M8 50H56', ink, 2); break;
+    case 'faraday': a += L('M8 20H56', ink, 3) + L(wave((t) => 34 - Math.min(14, 22 * Math.abs(sin(t, 1.5)) * (0.6 + 0.4 * sin(t, 0.5))) * Math.sign(sin(t, 1.5))), acc, 2.5); break;
+    case 'mbcomp': [[8, 30], [26, 18], [44, 26]].forEach(([x, y]) => { a += R(x, y, 13, 50 - y, ink, 0.85) + L('M' + (x + 6.5) + ' ' + (y - 9) + 'v6m-3-3 3 3 3-3', acc, 2); }); break;
+    case 'phaser': a += L(wave((t) => 32 - sin(t, 1.5) * 15), acc, 2.5) + L(wave((t) => 32 - sin(t + 0.12, 1.5) * 15), ink, 2.5, 0.7); break;
+    case 'flanger': for (let i = 0; i < 14; i++) { const x = 8 + 48 * Math.pow(i / 13, 1.6); a += L('M' + x.toFixed(1) + ' 12V52', i % 4 ? ink : acc, 1.8, i % 4 ? 0.7 : 1); } break;
+    case 'stereopan': a += L('M10 44A22 22 0 0 1 54 44', dim, 2) + C(16, 34, 4, ink, 0.4) + C(24, 26, 4, ink, 0.6) + C(36, 23, 6, acc) + L('M10 50H18M46 50H54', ink, 2); break;
+    case 'imager': [24, 18, 12].forEach((r, i) => { a += '<path d="M32 50L' + (32 - r * 1.1) + ' ' + (50 - r * 1.4) + 'A' + r * 1.8 + ' ' + r * 1.8 + ' 0 0 1 ' + (32 + r * 1.1) + ' ' + (50 - r * 1.4) + 'Z" fill="' + (i === 1 ? acc : ink) + '" opacity="' + (0.35 + i * 0.25) + '"/>'; }); break;
+    case 'proq': a += L('M8 40C18 40 18 22 26 22S34 46 42 46 50 30 56 30', acc, 3) + C(26, 22, 4, ink) + C(42, 46, 4, ink); break;
+    case 'filter': a += L('M8 40H30C36 40 38 22 41 22S44 34 47 44 52 54 56 56', acc, 3) + L('M8 48H56', dim, 1); break;
+    case 'autochroma': a += L('M32 12 50 46H14Z', ink, 2.5) + ['#F65A27', acc, ink].map((c, i) => L('M38 ' + (30 + i * 5) + 'L56 ' + (22 + i * 10), c, 2.5)).join('') + L('M8 34H28', dim, 2); break;
+    case 'ambient': for (let i = 4; i >= 1; i--) a += '<ellipse cx="32" cy="32" rx="' + i * 6.5 + '" ry="' + i * 5 + '" fill="none" stroke="' + ink + '" stroke-width="1.6" opacity="' + (1.2 - i * 0.22) + '"/>'; a += C(32, 32, 5, acc); break;
+    case 'valleyverb': [0, 1, 2, 3].forEach((i) => { a += R(10 + i * 4, 52 - 28 * Math.pow(0.8, i), 2.4, 28 * Math.pow(0.8, i), acc); }); for (let i = 0; i < 16; i++) { const hh = 22 * Math.exp(-i / 6); a += R(28 + i * 1.8, 52 - hh, 1.1, hh, ink, 0.7); } break;
+    case 'nudestort': a += ['#F65A27', '#68C3D4', '#23252A', '#826251'].map((c, i) => '<path d="' + wave((t) => 16 + i * 10 + 6 * sin(t + i * 0.2, 1.2) * Math.cos(t * 3 + i), 6, 58) + 'L58 64H6Z" fill="' + c + '"/>').join(''); break;
+    case 'parlour': a += '<rect x="16" y="16" width="32" height="32" fill="none" stroke="' + ink + '" stroke-width="2.5"/>' + L('M16 16 9 9M48 16 55 9M16 48 9 55M48 48 55 55', ink, 2) + [24, 32, 40].map((y) => L(wave((t) => y + 2.5 * sin(t, 1), 16, 48), ink, 1.6, 0.7)).join(''); break;
+  }
+  return '<svg viewBox="0 0 64 64" width="64" height="64" aria-hidden="true"><rect width="64" height="64" rx="7" fill="' + bg + '"/>' + a + '</svg>';
+}
+
 function fxPage(w, h) {
   let o = '';
-  const S = 'stroke:var(--ink);fill:none;stroke-width:2';
+  const S = 'stroke:var(--ink2);fill:none;stroke-width:1.5';
   // ---- routing column
   const cx = 40, cw = 250;
   o += sect(cx, 70, cw, 'ROUTING', { align: 'left', size: 9.4 });
@@ -993,7 +1161,7 @@ function fxPage(w, h) {
   o += keyButton(cx + 130, 112, 120, 'PARALLEL', 'fxParallel', { link: true, cls: 'pill', size: 8.6, h: 40, title: 'Each slot hears the dry sound; the results are mixed' });
   const bx = cx + 25, bw = 200, bh = 70, ys = [190, 300, 410, 520, 640];
   const box = (y, hh, top, nameId, id) => '<div' + (id ? ' id="' + id + '"' : '') + ' class="fx-route" style="position:absolute;left:' + bx + 'px;top:' + y + 'px;width:' + bw + 'px;height:' + hh + 'px;box-sizing:border-box;'
-    + 'border:1.5px solid var(--ink);border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;'
+    + 'background:var(--cell);box-shadow:inset 0 0 0 1px var(--pop-rule);border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;transition:box-shadow .12s;'
     + 'font:700 15px ' + FONT + ';font-stretch:75%;letter-spacing:.08em;color:var(--ink2)"><span>' + top + '</span>'
     + (nameId ? '<span id="' + nameId + '" style="font-size:19px;color:var(--ink)">NONE</span>' : '') + '</div>';
   o += box(ys[0], 44, 'INPUT');
@@ -1021,30 +1189,28 @@ function fxPage(w, h) {
     o += '<div class="fx-frame" id="fx' + s + '-frame" data-fx-drop="' + s + '" data-w="' + sw + '" data-h="' + ph + '" style="position:absolute;left:' + r1(x) + 'px;top:' + py + 'px;width:' + sw + 'px;height:' + ph + 'px"></div>';
   }
 
-  // ---- type picker, opened from a slot's name
-  const rows = [['TIME'], ['DISTORTION'], ['DYNAMICS', 'MODULATION'], ['FILTER / EQ', 'EXPERIMENTAL']];
-  const tw = 196, th = 58, tg = 16;
+  // ---- type picker, opened from a slot's name: one column per kind of effect, each effect with its
+  // picture and what it does (user, 2026-10-05: rows of uneven length left gaps and spilled over)
+  const cols = ['TIME', 'DISTORTION', 'DYNAMICS', 'MODULATION', 'FILTER / EQ', 'EXPERIMENTAL'];
   const inGroup = (g) => FX.map((f, i) => ({ f, i })).filter((e) => e.f.group === g);
-  const rowW = (r) => r.reduce((a, g) => a + inGroup(g).length * (tw + tg) - tg, 0) + (r.length - 1) * tg * 3;
-  const pw = Math.max(...rows.map(rowW)) + 48, ph2 = 66 + th + 20 + rows.length * 112 + 10;
+  const cg = 16, pw = w - 80, tw = Math.floor((pw - 48 - cg * (cols.length - 1)) / cols.length), th = 84, tg = 12;
+  const deepest = Math.max(...cols.map((g) => inGroup(g).length)), ph2 = 84 + 40 + deepest * (th + tg) + 18;
   let p = '<div id="fx-picker" hidden style="position:absolute;left:' + r1((w - pw) / 2) + 'px;top:' + r1((h - ph2) / 2) + 'px;width:' + pw + 'px;height:' + ph2 + 'px;z-index:30;border-radius:8px;'
-    + 'background:var(--base);box-shadow:0 18px 50px rgba(0,0,0,.55),inset 0 0 0 1.5px var(--rule)">';
-  p += txt(0, 20, pw, 'FX 1 TYPE', { size: 11, id: 'fx-picker-title', ls: 0.1 });
-  p += '<div data-fx-close title="Close" style="position:absolute;right:14px;top:14px;width:34px;height:30px;cursor:pointer;z-index:6;font:700 26px/30px ' + FONT + ';color:var(--ink);text-align:center">×</div>';
-  const tile = (x, y, val, label) => '<div class="fx-tile" data-fx-tile="' + val + '" style="position:absolute;left:' + r1(x) + 'px;top:' + r1(y) + 'px;width:' + tw + 'px;height:' + th + 'px;border-radius:6px;cursor:pointer;'
-    + 'display:flex;align-items:center;justify-content:center;font:700 17px ' + FONT + ';font-stretch:75%;letter-spacing:.05em;color:var(--ink);white-space:nowrap">' + label + '</div>';
-  p += tile(24, 66, 0, 'NONE');
-  let y = 66 + th + 20;
-  rows.forEach((row) => {
-    let x = 24;
-    row.forEach((g) => {
-      const list = inGroup(g), gw = list.length * (tw + tg) - tg;
-      p += '<div style="position:absolute;left:' + r1(x + 24) + 'px;top:' + (y + 10) + 'px;width:' + r1(gw - 48) + 'px;height:8px;border:1.5px solid var(--rule);border-bottom:none;pointer-events:none"></div>';
-      p += '<div style="position:absolute;left:' + r1(x) + 'px;top:' + y + 'px;width:' + r1(gw) + 'px;text-align:center;pointer-events:none"><span style="background:var(--base);padding:0 12px;font:700 15px ' + FONT + ';font-stretch:75%;letter-spacing:.1em;color:var(--ink2)">' + g + '</span></div>';
-      list.forEach((e, k) => { p += tile(x + k * (tw + tg), y + 30, e.i + 1, e.f.name); });
-      x += gw + tg * 3;
-    });
-    y += 112;
+    + 'background:var(--pop-bg2);box-shadow:0 28px 56px -16px rgba(0,0,0,.75),0 0 0 1px var(--pop-rule)">';
+  p += txt(24, 28, pw - 100, 'FX 1 · CHOOSE AN EFFECT', { size: 10, id: 'fx-picker-title', align: 'left', ls: 0.14 });
+  p += '<div data-fx-close class="pop-close" title="Close" style="position:absolute;right:10px;top:10px;width:36px;height:36px;cursor:pointer;z-index:6"><svg width="36" height="36" viewBox="0 0 36 36"><path d="M12.5 12.5 L23.5 23.5 M23.5 12.5 L12.5 23.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/></svg></div>';
+  const swatch = (f) => '<i class="fx-sw">' + fxArt(f) + '</i>';
+  const tile = (x, y, val, f) => '<div class="fx-tile" data-fx-tile="' + val + '" title="' + esc(f ? f.blurb : 'Leave this slot empty') + '" style="left:' + r1(x) + 'px;top:' + r1(y) + 'px;width:' + tw + 'px;height:' + th + 'px">'
+    + swatch(f) + '<span class="fx-tn">' + esc(f ? f.name : 'NONE') + '</span><span class="fx-tb">' + esc(f ? f.blurb : 'Leave this slot empty') + '</span></div>';
+  // NONE: just the ✕ and the word, in the empty bottom-right corner (user, 2026-10-05: a box at the top right
+  // read as a second close button)
+  p += '<div class="fx-none" data-fx-tile="0" title="Leave this slot empty" style="right:30px;top:' + (124 + (deepest - 1) * (th + tg) + 14) + 'px">'
+    + '<svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><rect x="1.5" y="1.5" width="21" height="21" rx="4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 8l8 8M16 8l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>NONE</span></div>';
+  cols.forEach((g, c) => {
+    const x = 24 + c * (tw + cg);
+    p += '<div class="section-heading" style="position:absolute;left:' + r1(x) + 'px;top:96px;width:' + tw + 'px;height:20px;display:flex;align-items:center;gap:10px;pointer-events:none;font:700 14px ' + FONT + ';font-stretch:75%;letter-spacing:.16em;color:var(--ink2)">'
+      + '<span>' + g + '</span><span style="flex:1;height:1px;background:var(--pop-rule)"></span></div>';
+    inGroup(g).forEach((e, k) => { p += tile(x, 124 + k * (th + tg), e.i + 1, e.f); });
   });
   p += '</div>';
   return o + p;
@@ -1096,9 +1262,9 @@ const popW = 2200, popH = 1060, popX = Math.round((W - popW) / 2), popY = Math.r
 body += pop('pop-matrix', 'MODULATION MATRIX', popX, popY, popW, popH, matrixPage(popW, popH), { subtitle: '8 SOURCES × 8 DESTINATIONS PER LAYER · DRAG A KNOB · DOUBLE-CLICK CLEARS' });
 body += pop('pop-seq', 'SEQUENCER', popX, popY + 150, popW, 560, seqPage(popW, 560), { subtitle: '64 STEPS · 16 MEMORIES' });
 body += pop('pop-altA', 'ALTERNATIVE WAVE A', popX, popY, popW, 1060, altPage(popW, 1060, 'A'), { subtitle: 'DDS 1 ALT A: CHOOSE ONE OF 32 WAVES' });
-body += pop('pop-custom', 'CUSTOM WAVE', Math.round((W - CU_W) / 2), Math.round((H - CU_H) / 2) - 40, CU_W, CU_H, customPage(CU_W, CU_H), { subtitle: 'DDS 1 · DROP A SAMPLE · PLAY IT ACROSS THE KEYBOARD' });
-body += pop('pop-patches', 'PATCH BROWSER', Math.round((W - PB_W) / 2), Math.round((H - PB_H) / 2) - 20, PB_W, PB_H, patchPage(PB_W, PB_H), { subtitle: 'LOAD A SOUND · SAVE INTO A BANK' });
-body += pop('pop-settings', 'SETTINGS', popX + 200, popY + 200, popW - 400, 380, settingsPage(popW - 400, 380));
+body += pop('pop-custom', 'CUSTOM WAVE', Math.round((W - CU_W) / 2), Math.round((H - CU_H) / 2) - 40, CU_W, CU_H, customPage(CU_W, CU_H), { subtitle: 'DDS 1 · ONE SHOT · LOOP · OR SLICE IT ACROSS THE KEYS' });
+body += patchBrowser();   // full-screen, not one of the floating POPS
+body += pop('pop-settings', 'SETTINGS', Math.round((W - SET_W) / 2), Math.round((H - SET_H) / 2) - 40, SET_W, SET_H, settingsPage(SET_W), { subtitle: 'GLOBAL · SAVED WITH THE HOST PROJECT' });
 body += pop('pop-fx', 'FX', Math.round((W - FXW) / 2), Math.round((H - FXH) / 2), FXW, FXH, fxPage(FXW, FXH), { subtitle: 'THREE SLOTS · SERIAL OR PARALLEL · LAYER MIX UNDER EACH SLOT' });
 body += pop('pop-modulate', 'MODULATE', Math.round((W - 740) / 2), Math.round((H - 960) / 2), 740, 960, modulatePage(740, 960));
 STYLE.flat = false;
@@ -1140,6 +1306,8 @@ for (const p of POPS) {
   dkCss += 'body.desktop-layout #' + p.id + ' .pop-panel{left:' + r1((DESKTOP_W - p.w * k) / 2) + 'px!important;top:'
     + r1((DESKTOP_H - p.h * k) / 2) + 'px!important;transform:scale(' + k.toFixed(3) + ');transform-origin:0 0}\n';
 }
+dkCss += '#pop-patches .pb-page{width:' + r1(W / PB_Z) + 'px;height:' + r1(H / PB_Z) + 'px;transform:scale(' + PB_Z + ')}\n'
+  + 'body.desktop-layout #pop-patches .pb-page{width:' + DESKTOP_W + 'px;height:' + DESKTOP_H + 'px;transform:none}\n';
 body = '<div class="dk-only">' + dkDecor + '</div>' + body;
 console.log('desktop ' + DESKTOP_W + 'x' + DESKTOP_H);
 
@@ -1156,7 +1324,9 @@ const THEMES = {
           // pop-overs: the theme, darker - charcoal from the inset panels, cream ink, the orange accent
           'pop-bg': '#434345', 'pop-bg2': '#262627', 'pop-ink': '#E7E2DA', 'pop-ink2': '#A8A49C', 'pop-accent': '#F65A27',
           'pop-rule': 'rgba(231,226,218,.16)', 'pop-link': '#D8D2C8', 'pop-key': '#333335',
-          'pop-upper': '#E7E2DA', 'pop-lower': '#F65A27' },   // the layers' cap colours: cream UPPER, orange LOWER
+          'pop-upper': '#E7E2DA', 'pop-lower': '#F65A27',
+          // the sample waveform, coloured by what is in it: lows, mids, highs
+          'wave-lo': '#F65A27', 'wave-mid': '#F2A33A', 'wave-hi': '#E7E2DA' },   // the layers' cap colours: cream UPPER, orange LOWER
   // palette: base #568EA3, accent #826251, light #FFE8D1, text #FFFFFF, lines #68C3D4
   super6: { base: '#568EA3', ink: '#FFFFFF', ink2: '#FFE8D1', opt: '#68C3D4', accent: '#826251', inset: '#FFE8D1', oink: '#568EA3', oink2: '#68C3D4',
           rule: '#68C3D4', otick: '#568EA3', badge: '#568EA3', 'badge-ink': '#FFFFFF', hi: '#FFFFFF', field: 'rgba(0,0,0,.14)', shade: '.12',
@@ -1165,10 +1335,24 @@ const THEMES = {
           'pop-bg': '#2F5A6B', 'pop-bg2': '#18323D', 'pop-ink': '#FFFFFF', 'pop-ink2': '#D9C9B6', 'pop-accent': '#68C3D4',
           'pop-rule': 'rgba(104,195,212,.3)', 'pop-link': '#FFE8D1', 'pop-key': '#244654',
           'pop-upper': '#FFE8D1', 'pop-lower': '#C08A6C',
-          cap1: '#FFE8D1', cap2: '#826251', capDark: '#826251', insetTex: 'hide' }
+          'wave-lo': '#C08A6C', 'wave-mid': '#68C3D4', 'wave-hi': '#FFE8D1',
+          cap1: '#FFE8D1', cap2: '#826251', capDark: '#826251', insetTex: 'hide' },
+  // GEMINI inverted and drained of colour: the panel goes black, the dark inset sub-panels (DDS,
+  // ENVELOPES) become grey, and the orange accent becomes grey too. Nothing stays white.
+  dark: { base: '#1E1C1A', ink: '#E7E2DA', ink2: '#9C968C', opt: '#9C968C', accent: '#D8D2C8', inset: '#B4AFA6',
+          oink: '#1E1C1A', oink2: '#45413B', rule: '#6E6860', otick: '#4A4640', badge: '#1E1C1A', 'badge-ink': '#E7E2DA',
+          hi: '#2A2724', field: 'rgba(231,226,218,.08)', shade: '.22',
+          sel: '#FFFFFF', osel: '#1E1C1A', link: '#9C968C', pressed: '#E7E2DA',
+          // pop-overs: the same graphite, one step darker, with the cream as accent
+          'pop-bg': '#2A2724', 'pop-bg2': '#161412', 'pop-ink': '#E7E2DA', 'pop-ink2': '#908A80', 'pop-accent': '#D8D2C8',
+          'pop-rule': 'rgba(231,226,218,.16)', 'pop-link': '#B8B2A8', 'pop-key': '#201E1B',
+          'pop-upper': '#D8D2C8', 'pop-lower': '#8E8578',
+          'wave-lo': '#8E8578', 'wave-mid': '#B4AFA6', 'wave-hi': '#F2EEE8',
+          // caps: the cream ones stay cream-ish, the orange ones become a warm taupe, blacks lift a little
+          cap1: '#C9C3B8', cap2: '#8E8578', capDark: '#3A3733', insetTex: 'hide', keys: '#A9A49B' }
 };
-const THEME_KEYS = ['gemini', 'super6'];
-const CSS_KEYS = ['base', 'ink', 'ink2', 'opt', 'accent', 'inset', 'oink', 'oink2', 'rule', 'otick', 'badge', 'badge-ink', 'hi', 'field', 'shade', 'sel', 'osel', 'link', 'pressed', 'pop-bg', 'pop-bg2', 'pop-ink', 'pop-ink2', 'pop-accent', 'pop-rule', 'pop-link', 'pop-key', 'pop-upper', 'pop-lower'];
+const THEME_KEYS = ['gemini', 'super6', 'dark'];
+const CSS_KEYS = ['base', 'ink', 'ink2', 'opt', 'accent', 'inset', 'oink', 'oink2', 'rule', 'otick', 'badge', 'badge-ink', 'hi', 'field', 'shade', 'sel', 'osel', 'link', 'pressed', 'pop-bg', 'pop-bg2', 'pop-ink', 'pop-ink2', 'pop-accent', 'pop-rule', 'pop-link', 'pop-key', 'pop-upper', 'pop-lower', 'wave-lo', 'wave-mid', 'wave-hi'];
 const themeVars = (t) => CSS_KEYS.filter((k) => THEMES[t][k] != null).map((k) => '--' + k + ':' + THEMES[t][k]).join(';');
 const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
 // piecewise: black -> colour at the asset's mid-tone L -> white (keeps highlights)
@@ -1194,13 +1378,15 @@ const TINT_SVG = '<svg width="0" height="0" style="position:absolute" aria-hidde
     + tintFilter('t-lower-' + k, 0.42, P.cap2)       // orange caps -> LOWER colour
     + tintFilter('t-dark-' + k, 0.24, P.capDark)     // black caps and keys
     + flatFilter('t-base-' + k, 0.888, P.base)       // panel texture
-    + flatFilter('t-inset-' + k, 0.259, P.inset);    // dark inset texture
+    + flatFilter('t-inset-' + k, 0.259, P.inset)
+    + (P.keys ? tintFilter('t-keys-' + k, 0.95, P.keys) : '');   // keybed (octave.png / whitekey.png), measured 0.95    // dark inset texture
   }).join('') + '</defs></svg>';
 const TINT_CSS = TINTED.map((k) => [
   ['[src*="cream"],[src*="fader-grey"]', 't-light-'],
   ['[src*="button-light"]', 't-key-'],
   ['[src*="orange"]', 't-lower-'],
-  ['[src*="-dark"]', 't-dark-']
+  ['[src*="-dark"]', 't-dark-'],
+  ...(THEMES[k].keys ? [['[src*="octave.png"],[src*="whitekey"],[src*="key-off"],[src*="key-on"]', 't-keys-']] : [])
 ].map(([sel, f]) => sel.split(',').map((s) => 'body.theme-' + k + ' img' + s).join(',') + '{filter:url(#' + f + k + ')}').join('\n')
   + '\nbody.theme-' + k + ' .tex{filter:url(#t-base-' + k + ')}'
   // a light inset is a solid fill: the dark texture cannot be lifted to near-white without clipping
@@ -1220,7 +1406,7 @@ const html = `<!doctype html>
     @font-face { font-family: 'SPKR Condensed'; src: url(spkr-condensed-700.woff2) format('woff2'); font-weight: 700; font-display: block; }
     html, body { margin: 0; background: #1c1d1f; }
     body { ${themeVars('gemini')}; }
-    body.theme-super6 { ${themeVars('super6')}; }
+${THEME_KEYS.filter((t) => t !== 'gemini').map((t) => '    body.theme-' + t + ' { ' + themeVars(t) + '; }').join('\n')}
     /* text-only commands: the clickable word is the control */
     body { --barlink: var(--oink); }
     body.desktop-layout [data-dk^="bar-"] { --barlink: var(--link); }
@@ -1232,11 +1418,31 @@ const html = `<!doctype html>
     .folder-row:hover { background: rgba(0,0,0,.07); }
     body:not(.arp-free) .arp-free-only, body.arp-free .arp-sync-only { display: none; }
     .link.pill[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff !important; text-decoration: none; }
-    /* pop-over pages: dark flat look (charcoal, lowercase-feel, periwinkle; salmon = LOWER) */
+    /* pop-over pages: the theme, darker and flat (SPKR_UI_STYLE.md). Solid blocks on hairlines, the
+       accent kept for one job - what is on / active - and no gradients, glows or texture. */
     .pop .pop-panel { --base:var(--pop-bg2); --ink:var(--pop-ink); --ink2:var(--pop-ink2); --opt:var(--pop-ink2); --accent:var(--pop-accent); --inset:var(--pop-bg2);
       --oink:var(--pop-ink); --oink2:var(--pop-ink2); --rule:var(--pop-rule); --otick:var(--pop-ink2); --badge:var(--pop-key); --badge-ink:var(--pop-ink);
-      --hi:var(--pop-ink); --field:rgba(0,0,0,.25); --shade:.2; --sel:var(--pop-accent); --osel:var(--pop-accent); --link:var(--pop-link); --pressed:var(--pop-ink);
-      background:linear-gradient(180deg,var(--pop-bg),var(--pop-bg2)) !important; box-shadow:0 20px 60px rgba(0,0,0,.65),inset 0 0 0 1px rgba(255,255,255,.07) !important; }
+      --hi:var(--pop-ink); --field:color-mix(in srgb,var(--pop-bg2) 70%,#000); --shade:.2; --sel:var(--pop-accent); --osel:var(--pop-accent); --link:var(--pop-link); --pressed:var(--pop-ink);
+      --cell:color-mix(in srgb,var(--pop-bg2),var(--pop-ink) 5%); --cell-hi:color-mix(in srgb,var(--pop-bg2),var(--pop-ink) 10%);
+      --wash:color-mix(in srgb,var(--pop-accent) 16%,transparent);
+      background:var(--pop-bg2) !important; border-radius:8px !important;
+      box-shadow:0 28px 56px -16px rgba(0,0,0,.7),0 0 0 1px var(--pop-rule) !important; }
+    .pop .pop-head { background:var(--cell); border-bottom:1px solid var(--pop-rule); }
+    .pop-close { color:var(--ink2); border-radius:6px; transition:color .12s,background-color .12s; }
+    .pop-close:hover { color:var(--ink); background:var(--cell-hi); }
+    .pop ::selection { background:var(--pop-accent); color:var(--pop-bg2); }
+    .pop input { caret-color:var(--pop-accent); }
+    .pop input::placeholder { color:var(--pop-ink2); opacity:.7; }
+    .pop input:focus { border-color:var(--pop-accent) !important; }
+    .pop :focus-visible { outline:2px solid var(--pop-accent); outline-offset:2px; }
+    .pop ::-webkit-scrollbar { width:10px; height:10px; } .pop ::-webkit-scrollbar-track { background:transparent; }
+    .pop ::-webkit-scrollbar-thumb { background:var(--cell-hi); border-radius:5px; border:2px solid var(--pop-bg2); }
+    .pop ::-webkit-scrollbar-thumb:hover { background:var(--pop-ink2); }
+    /* opening: the backdrop fades and the page rises into place (translate composes with the desktop-mode scale) */
+    .pop:not([hidden]) { animation:pop-fade .16s ease-out; }
+    .pop:not([hidden]) .pop-panel { animation:pop-rise .32s cubic-bezier(.16,1,.3,1); }
+    @keyframes pop-fade { from { background-color:rgba(12,13,15,0); } }
+    @keyframes pop-rise { from { translate:0 16px; opacity:0; } }
     /* flat keys (tools/make-fx-controls.mjs): the fill comes from the theme */
     .pop img[src$="flat-btn-off.svg"] { background:var(--pop-key); border-radius:7px; }
     .pop img[src$="flat-btn-on.svg"] { background:var(--pop-accent); border-radius:7px; }
@@ -1245,17 +1451,48 @@ const html = `<!doctype html>
        the effect windows on it keep their own gradients */
     #pop-fx .pop-panel { background:var(--pop-bg2) !important; }
     .pop .pop-panel .section-heading { text-transform:lowercase; letter-spacing:.04em; }
-    .pop .fx-tile { background:rgba(255,255,255,.06); }
-    .pop .fx-tile:hover { background:rgba(255,255,255,.12); }
-    .pop .link.pill { border-color:rgba(255,255,255,.22); }
+    .fx-tile { position:absolute; box-sizing:border-box; border-radius:6px; cursor:pointer; padding:16px 14px 0 92px; background:var(--cell);
+      transition:background-color .12s,box-shadow .12s,translate .18s cubic-bezier(.16,1,.3,1); font-family:Bahnschrift,'SPKR Condensed',sans-serif; font-stretch:75%; }
+    .fx-tile:hover { background:var(--cell-hi); translate:0 -2px; }
+    .fx-tile.sel { box-shadow:inset 0 0 0 2px var(--pop-accent); }
+    .fx-sw { position:absolute; left:10px; top:10px; width:64px; height:64px; border-radius:7px; box-shadow:0 0 0 1px rgba(255,255,255,.1); transition:scale .2s cubic-bezier(.16,1,.3,1); }
+    .fx-sw svg { display:block; }
+    .fx-tile:hover .fx-sw { scale:1.06; }
+    .fx-none { position:absolute; display:flex; align-items:center; gap:12px; padding:8px 10px; border-radius:6px; cursor:pointer; color:var(--ink2);
+      font:700 17px Bahnschrift,'SPKR Condensed',sans-serif; font-stretch:75%; letter-spacing:.14em; transition:color .12s,background-color .12s; }
+    .fx-none:hover { color:var(--ink); background:var(--cell); }
+    .fx-none.sel { color:var(--pop-accent); }
+    .fx-tn { display:block; font-weight:700; font-size:19px; letter-spacing:.06em; color:var(--ink); white-space:nowrap; }
+    .fx-tb { display:block; margin-top:6px; font-weight:600; font-size:14px; letter-spacing:.02em; color:var(--ink2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    #fx-picker:not([hidden]) { animation:pop-rise .26s cubic-bezier(.16,1,.3,1); }
+    .fx-route[data-fx-grip]:hover { box-shadow:inset 0 0 0 1px var(--pop-ink2); }
+    .pop .link.pill { border-color:var(--pop-rule); border-width:1px; transition:background-color .12s,border-color .12s,color .12s,transform .08s; }
+    .pop .link.pill:hover { background:var(--cell-hi); border-color:var(--pop-ink2); }
+    .pop .link.pill:active { transform:translateY(1px); }
+    .pop .link.pill[aria-pressed="true"] { background:var(--wash); border-color:var(--pop-accent); color:var(--pop-ink) !important; }
+    .pop .link.pill.primary { background:var(--pop-accent); border-color:var(--pop-accent); color:var(--pop-bg2) !important; }
+    .pop .link:not(.pill):hover { background:none; color:var(--pop-ink) !important; text-decoration:underline; text-underline-offset:5px; text-decoration-thickness:1px; }
+    /* settings: each theme key carries its own three colours */
+    #act-theme-gemini::before, #act-theme-super6::before, #act-theme-dark::before { content:''; display:inline-block; width:12px; height:12px; border-radius:50%;
+      margin-right:44px; vertical-align:-1px; box-shadow:0 0 0 1px rgba(0,0,0,.35); }
+    #act-theme-gemini::before { background:#E7E2DA; box-shadow:16px 0 0 #F65A27,32px 0 0 #424243; }
+    #act-theme-super6::before { background:#568EA3; box-shadow:16px 0 0 #FFE8D1,32px 0 0 #826251; }
+    #act-theme-dark::before { background:#1E1C1A; box-shadow:0 0 0 1px #6E6860,16px 0 0 #B4AFA6,32px 0 0 #D8D2C8; }
+    /* matrix cells: idle sits back, an amount lights the cell and draws a bar from its centre */
+    .mtx-cell { position:absolute; border-radius:4px; background:var(--cell); pointer-events:none; transition:background-color .15s; }
+    .mtx-cell::after { content:''; position:absolute; bottom:8px; height:3px; left:50%; width:46%; background:var(--pop-accent); border-radius:2px;
+      transform:scaleX(var(--mag,0)); transform-origin:0 50%; transition:transform .12s ease-out; }
+    .mtx-cell.neg::after { left:auto; right:50%; transform-origin:100% 50%; }
+    .mtx-cell.on { background:var(--wash); }
+    .mtx-cell.on + svg + img { filter:brightness(1.15); }
+    .mtx-cell.cross { background:var(--cell-hi); } .mtx-cell.on.cross { background:color-mix(in srgb,var(--pop-accent) 24%,transparent); }
+    .mtx-head { transition:color .12s; } .mtx-head.hot { color:var(--pop-ink) !important; }
+    .mtx-val.on { color:var(--pop-ink) !important; }
     #pop-fx.fx-mode-serial .fx-par, #pop-fx.fx-mode-parallel .fx-ser { display: none; }
-    .fx-tile:hover { background: rgba(0,0,0,.08); }
     .fx-slot:hover, .fx-sel:hover { text-decoration: underline; text-underline-offset: 5px; }
     .fx-knob.off, .fx-sel:empty { display: none; }
     .fx-drop { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; font: 700 22px Bahnschrift,sans-serif; font-stretch: 75%; letter-spacing: .12em; color: var(--accent); background: rgba(0,0,0,.72); border: 2px dashed var(--accent); border-radius: 4px; pointer-events: none; }
     .fx-screen.drag .fx-drop { display: flex; }
-    .fx-tile { background: rgba(0,0,0,.12); }
-    .fx-tile.sel { background: var(--accent); color: #fff !important; }
     .link[aria-pressed="true"] { color: var(--pressed) !important; text-decoration: underline; text-underline-offset: 4px; }
     [data-dk^="bar-"] .link[aria-pressed="true"] { color: var(--osel) !important; }
     body.desktop-layout [data-dk^="bar-"] .link[aria-pressed="true"] { color: var(--pressed) !important; }
@@ -1266,33 +1503,156 @@ ${TINT_CSS}
     body.shift .shift-only { display: block; }
     body.shift .shift-hide { display: none; }
     [id^="pop-"] .pop-panel { }
-    /* patch browser: one row per patch, columns ♥ / NAME / TYPE / BANK */
-    .patch-row { position: relative; display: flex; align-items: center; height: 44px; font-size: 17px; font-weight: 700; letter-spacing: .04em;
-      color: var(--ink); cursor: pointer; border-bottom: 1px solid rgba(127,127,127,.18); }
-    .patch-row:hover { background: rgba(127,127,127,.12); }
-    .patch-row.sel { background: rgba(127,127,127,.14); }
-    .patch-row.sel .pb-name, .patch-row.sel .pb-type, .patch-row.sel .pb-bank { color: var(--accent); }
-    .patch-row > span { padding: 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .pb-fav { width: 52px; text-align: center; color: rgba(127,127,127,.5); font-size: 19px; }
-    .pb-fav.on { color: var(--accent); }
-    .pb-name { width: 536px; }
-    .pb-type { width: 376px; color: var(--ink2); font-weight: 600; }
-    .pb-bank { flex: 1; color: var(--ink2); font-weight: 600; }
-    .pb-head:hover, .pb-chip:hover, .pb-menu-btn:hover { background: rgba(127,127,127,.14); }
-    .pb-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
-    .pb-arrow { font-size: 13px; opacity: .8; padding-left: 6px; }
-    .pb-pop { position: absolute; z-index: 30; min-width: 220px; max-height: 420px; overflow-y: auto; padding: 6px 0; border-radius: 10px;
-      background: var(--pop-bg); box-shadow: 0 16px 40px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.12);
-      font: 700 16px Bahnschrift, sans-serif; font-stretch: 75%; letter-spacing: .04em; color: var(--ink); }
-    .pb-pop div { padding: 8px 16px; cursor: pointer; white-space: nowrap; }
-    .pb-pop div:hover { background: rgba(127,127,127,.2); }
-    .pb-pop div.on { color: var(--accent); }
-    .patch-empty { padding: 20px 16px; font-size: 15px; font-weight: 600; color: ${INK2}; }
-    #patch-list::-webkit-scrollbar { width: 10px; } #patch-list::-webkit-scrollbar-thumb { background: rgba(0,0,0,.25); border-radius: 5px; }
+    /* patch browser: a full-screen page (after Arturia's), laid out as a grid so it fills either layout */
+    .pb-pop-page { position:absolute; left:0; top:0; width:100%; height:100%; z-index:40; background:var(--pop-bg2); }
+    #pop-patches .pb-page { position:absolute; left:0; top:0; transform-origin:0 0; border-radius:0 !important; box-shadow:none !important; overflow:hidden;
+      display:grid; grid-template-columns:320px minmax(0,1fr) 440px; grid-template-rows:76px minmax(0,1fr);
+      font-family:Bahnschrift,'SPKR Condensed',sans-serif; font-stretch:75%; color:var(--pop-ink); }
+    #pop-patches .pb-page > * { min-width:0; min-height:0; }
+    .pb-top { grid-column:1 / -1; display:flex; align-items:center; gap:20px; padding:0 14px 0 0; background:var(--cell); border-bottom:1px solid var(--pop-rule); }
+    .pb-back { width:306px; flex:none; height:76px; display:flex; align-items:center; gap:10px; padding-left:22px; box-sizing:border-box; cursor:pointer;
+      font-weight:700; font-size:22px; letter-spacing:.12em; color:var(--ink2); border-right:1px solid var(--pop-rule); transition:color .12s,background-color .12s; }
+    .pb-back:hover { color:var(--ink); background:var(--cell-hi); }
+    .pb-title { font-weight:700; font-size:26px; letter-spacing:.16em; }
+    .pb-search { flex:1; max-width:640px; height:46px; display:flex; align-items:center; gap:10px; padding:0 14px; box-sizing:border-box; border-radius:23px;
+      background:var(--field); box-shadow:inset 0 0 0 1px var(--pop-rule); color:var(--ink2); transition:box-shadow .12s; }
+    .pb-search:focus-within { box-shadow:inset 0 0 0 1.5px var(--pop-accent); }
+    .pb-search input { flex:1; min-width:0; border:0; outline:none; background:none; color:var(--ink); font:700 19px Bahnschrift,'SPKR Condensed',sans-serif; font-stretch:75%; letter-spacing:.04em; }
+    .pb-chip { height:46px; flex:none; display:flex; align-items:center; gap:10px; padding:0 18px; box-sizing:border-box; border-radius:23px; cursor:pointer;
+      box-shadow:inset 0 0 0 1px var(--pop-rule); font-weight:700; font-size:16px; letter-spacing:.1em; color:var(--ink2); transition:background-color .12s,color .12s; }
+    .pb-chip:hover { background:var(--cell-hi); color:var(--ink); }
+    .pb-chip.on { color:var(--pop-ink); background:var(--wash); box-shadow:inset 0 0 0 1px var(--pop-accent); } .pb-chip.on svg { color:var(--pop-accent); }
+    .pb-textbtn { flex:none; cursor:pointer; font-weight:700; font-size:15px; letter-spacing:.1em; color:var(--ink2); }
+    .pb-textbtn:hover { color:var(--ink); text-decoration:underline; text-underline-offset:5px; }
+    .pb-count { margin-left:auto; flex:none; font-weight:600; font-size:16px; letter-spacing:.12em; color:var(--ink2); }
+    #pop-patches .pop-close { flex:none; }
+    /* sidebar */
+    .pb-side { display:flex; flex-direction:column; padding:18px 14px; gap:2px; border-right:1px solid var(--pop-rule); overflow:hidden; }
+    .pb-nav { display:flex; align-items:center; justify-content:space-between; height:48px; padding:0 14px; border-radius:6px; cursor:pointer;
+      font-weight:700; font-size:20px; letter-spacing:.1em; color:var(--ink2); transition:background-color .12s,color .12s; }
+    .pb-nav span { font-weight:600; font-size:15px; }
+    .pb-nav:hover { background:var(--cell); color:var(--ink); }
+    .pb-nav.on { background:var(--wash); color:var(--pop-ink); }
+    .pb-side-h { margin:22px 14px 10px; font-weight:700; font-size:14px; letter-spacing:.18em; color:var(--ink2); }
+    .pb-packlist { flex:1; min-height:0; overflow-y:auto; display:flex; flex-direction:column; gap:2px; }
+    .pb-pl { display:flex; align-items:center; gap:12px; padding:6px 10px; border-radius:6px; cursor:pointer; transition:background-color .12s; }
+    .pb-pl:hover { background:var(--cell); } .pb-pl.on { background:var(--wash); }
+    .pb-pl-cover { width:44px; height:44px; flex:none; border-radius:4px; overflow:hidden; box-shadow:0 0 0 1px var(--pop-rule); }
+    .pb-pl-name { flex:1; min-width:0; font-weight:700; font-size:17px; letter-spacing:.05em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .pb-pl-n { font-weight:600; font-size:14px; color:var(--ink2); }
+    .pb-side-foot { border-top:1px solid var(--pop-rule); padding:14px 10px 0; margin-top:10px; }
+    .pb-links { display:grid; grid-template-columns:1fr 1fr; gap:6px 10px; margin-top:10px; }
+    .pb-l { font-weight:700; font-size:14px; letter-spacing:.1em; color:var(--ink2) !important; cursor:pointer; padding:4px 0; }
+    .pb-l:hover { color:var(--ink) !important; text-decoration:underline; text-underline-offset:4px; }
+    .pb-note { font-weight:600; font-size:14px; line-height:1.4; letter-spacing:.03em; color:var(--ink2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    /* middle */
+    .pb-main { position:relative; overflow:hidden; }
+    .pb-view { position:absolute; inset:0; display:flex; flex-direction:column; padding:18px 26px 0; }
+    .pb-view[hidden] { display:none; }
+    .pb-packhead { flex:none; display:flex; align-items:center; gap:22px; margin-bottom:16px; padding:14px; border-radius:8px; background:var(--cell); animation:pb-art-in .35s ease-out; }
+    .pb-packhead[hidden] { display:none; }
+    .pb-packhead .pb-ph-cover { width:110px; height:110px; flex:none; border-radius:6px; overflow:hidden; cursor:pointer; position:relative; }
+    .pb-packhead h3 { margin:0; font-weight:700; font-size:34px; letter-spacing:.04em; }
+    .pb-packhead p { margin:6px 0 0; font-weight:600; font-size:15px; letter-spacing:.12em; color:var(--ink2); }
+    .pb-packhead .pb-ph-acts { margin-left:auto; display:flex; gap:10px; }
+    .pb-types { flex:none; display:flex; gap:10px; overflow-x:auto; padding-bottom:12px; scrollbar-width:thin; }
+    .pb-type { flex:none; height:38px; line-height:38px; padding:0 18px; border-radius:19px; cursor:pointer; box-shadow:inset 0 0 0 1px var(--pop-rule);
+      font-weight:700; font-size:15px; letter-spacing:.1em; color:var(--ink2); white-space:nowrap; transition:background-color .12s,color .12s,box-shadow .12s; }
+    .pb-type:hover { color:var(--ink); background:var(--cell-hi); }
+    .pb-type.on { color:var(--pop-ink); background:var(--wash); box-shadow:inset 0 0 0 1px var(--pop-accent); }
+    /* the table: one column template for the head and every row, so the words line up */
+    .pb-grid { display:grid; grid-template-columns:56px minmax(0,2.3fr) minmax(0,1.4fr) minmax(0,1.2fr); column-gap:16px; align-items:center; padding:0 12px 0 0; }
+    .pb-thead { flex:none; height:40px; border-bottom:1px solid var(--pop-rule); font-weight:700; font-size:14px; letter-spacing:.16em; color:var(--ink2); }
+    .pb-head { cursor:pointer; white-space:nowrap; display:flex; align-items:center; gap:8px; transition:color .12s; }
+    .pb-head:first-child { justify-content:center; }
+    .pb-head:hover { color:var(--ink) !important; }
+    .pb-arrow { display:inline-block; width:0; height:0; border:5px solid transparent; }
+    .pb-arrow.up { border-bottom-color:currentColor; border-top-width:0; } .pb-arrow.down { border-top-color:currentColor; border-bottom-width:0; }
+    .pb-list { flex:1; min-height:0; overflow-y:auto; outline:none; padding-bottom:20px; }
+    .patch-row { height:50px; font-size:19px; font-weight:700; letter-spacing:.04em; color:var(--ink); cursor:pointer; border-bottom:1px solid var(--pop-rule); transition:background-color .1s; }
+    .patch-row > span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .patch-row:hover { background:var(--cell); }
+    .patch-row.sel { background:var(--wash); }
+    .patch-row.sel .pb-name { color:var(--pop-accent); }
+    .pb-type-c, .pb-bank { color:var(--ink2); font-weight:600; }
+    .pb-fav { display:flex; justify-content:center; color:var(--pop-rule); cursor:pointer; transition:color .12s; }
+    .pb-fav:hover { color:var(--ink2); }
+    .pb-fav.on { color:var(--pop-accent); }
+    .pb-fav.pop-in { animation:pb-like .32s cubic-bezier(.16,1,.3,1); }
+    @keyframes pb-like { from { scale:1.4; } }
+    .patch-empty { padding:40px 16px; font-size:18px; font-weight:600; letter-spacing:.04em; color:var(--ink2); }
+    /* pack grid */
+    .pb-packgrid { flex:1; min-height:0; overflow-y:auto; display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:26px 22px; align-content:start; padding:6px 4px 24px; }
+    .pb-pack { cursor:pointer; position:relative; transition:translate .2s cubic-bezier(.16,1,.3,1); }
+    .pb-pack:hover { translate:0 -4px; }
+    .pb-cover { position:relative; aspect-ratio:1; border-radius:8px; overflow:hidden; background:var(--cell); box-shadow:0 0 0 1px var(--pop-rule); }
+    .pb-cover img, .pb-cover svg, .pb-art img, .pb-art svg, .pb-pl-cover img, .pb-pl-cover svg, .pb-ph-cover img, .pb-ph-cover svg { display:block; width:100%; height:100%; object-fit:cover; }
+    .pb-pack-name { margin-top:12px; font-weight:700; font-size:20px; letter-spacing:.06em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .pb-pack-count { margin-top:3px; font-weight:600; font-size:14px; letter-spacing:.12em; color:var(--ink2); }
+    /* change image: appears over a cover on hover */
+    .pb-change { position:absolute; left:10px; right:10px; bottom:10px; height:36px; line-height:36px; text-align:center; border-radius:18px; cursor:pointer;
+      background:rgba(14,14,15,.82); color:#F2EEE8; font-weight:700; font-size:14px; letter-spacing:.12em; opacity:0; translate:0 6px; transition:opacity .15s,translate .2s cubic-bezier(.16,1,.3,1); }
+    .pb-cover:hover .pb-change, .pb-art:hover .pb-change, .pb-ph-cover:hover .pb-change { opacity:1; translate:0 0; }
+    .pb-change:hover { background:var(--pop-accent); color:var(--pop-bg2); }
+    /* right */
+    .pb-detail { display:flex; flex-direction:column; gap:12px; padding:22px 24px 18px; border-left:1px solid var(--pop-rule); overflow:hidden; }
+    .pb-art { position:relative; flex:none; aspect-ratio:1; border-radius:8px; overflow:hidden; background:var(--cell); box-shadow:0 0 0 1px var(--pop-rule); cursor:pointer; }
+    .pb-art > :not(.pb-change) { animation:pb-art-in .4s ease-out; }
+    @keyframes pb-art-in { from { opacity:0; scale:1.03; } }
+    .pb-cur { display:flex; align-items:center; gap:10px; margin-top:6px; }
+    .pb-cur-name { flex:1; min-width:0; font-weight:700; font-size:32px; letter-spacing:.02em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .pb-cur-fav svg { width:28px; height:28px; }
+    .pb-cur-meta { font-weight:600; font-size:15px; letter-spacing:.12em; color:var(--ink2); }
+    .pb-row { display:flex; gap:10px; }
+    .pb-row > .pill { flex:1; height:44px; line-height:44px; text-align:center; font-weight:700; font-size:16px; letter-spacing:.1em; cursor:pointer; color:var(--ink); }
+    .pb-save { margin-top:auto; display:flex; flex-direction:column; gap:8px; }
+    .pb-save .pb-side-h { margin:4px 0 4px; }
+    .pb-field { display:grid; grid-template-columns:62px minmax(0,1fr) 44px; gap:8px; align-items:center; font-weight:700; font-size:13px; letter-spacing:.14em; color:var(--ink2); }
+    .pb-input { height:44px; box-sizing:border-box; min-width:0; border:1px solid var(--pop-rule); border-radius:6px; background:var(--field); color:var(--ink); outline:none; padding:0 12px;
+      font:700 18px Bahnschrift,'SPKR Condensed',sans-serif; font-stretch:75%; letter-spacing:.04em; }
+    .pb-menu-btn { width:44px; height:44px; display:flex; align-items:center; justify-content:center; border-radius:6px; cursor:pointer; box-shadow:inset 0 0 0 1px var(--pop-rule); color:var(--ink2); transition:background-color .12s,color .12s; }
+    .pb-menu-btn:hover { background:var(--cell-hi); color:var(--ink); }
+    .pb-status { min-height:20px; color:var(--ink); white-space:normal; }
+    .pb-pop { position:absolute; z-index:30; min-width:220px; max-height:420px; overflow-y:auto; padding:6px 0; border-radius:8px;
+      background:var(--cell-hi); box-shadow:0 18px 36px -10px rgba(0,0,0,.7),0 0 0 1px var(--pop-rule); animation:pb-menu .16s ease-out;
+      font:700 16px Bahnschrift, sans-serif; font-stretch:75%; letter-spacing:.04em; color:var(--ink); }
+    @keyframes pb-menu { from { opacity:0; translate:0 -6px; } }
+    .pb-pop div { padding:8px 16px; cursor:pointer; white-space:nowrap; }
+    .pb-pop div:hover { background:var(--wash); }
+    .pb-pop div.on { color:var(--accent); }
+    /* VCF STYLE: the Super Gemini layout or the 3rd Wave one, per layer */
+    .vcf-3w-upper, .vcf-3w-lower { display: none; }
+    body.vcf3w-upper .vcf-3w-upper { display: block; }
+    body.vcf3w-upper .vcf-sg-upper { display: none; }
+    body.vcf3w-lower .vcf-3w-lower { display: block; }
+    body.vcf3w-lower .vcf-sg-lower { display: none; }
+    /* the sample page: text segments bound to a parameter; groups that do not apply to the mode dim */
+    .cu-seg { display:flex; align-items:center; justify-content:center; box-sizing:border-box; border-radius:6px; box-shadow:inset 0 0 0 1px var(--pop-rule);
+      font:700 17px Bahnschrift,'SPKR Condensed',sans-serif; font-stretch:75%; letter-spacing:.1em; color:var(--ink2); transition:background-color .12s,color .12s,box-shadow .12s; }
+    .cu-seg:hover { background:var(--cell-hi); color:var(--ink); }
+    .cu-seg[aria-pressed="true"] { background:var(--pop-accent); color:var(--pop-bg2); box-shadow:none; }
+    .cu-group { position:absolute; left:0; top:0; width:100%; height:100%; pointer-events:none; transition:opacity .2s; }
+    .cu-group > [data-param], .cu-group > [data-action] { pointer-events:auto; }
+    #pop-custom:not(.cu-loop) .cu-loop-only, #pop-custom:not(.cu-slice) .cu-slice-only { opacity:.28; }
+    #pop-custom:not(.cu-loop) .cu-loop-only > *, #pop-custom:not(.cu-slice) .cu-slice-only > * { pointer-events:none !important; }
     .seq-sel { box-shadow: inset 0 0 0 3px ${ORANGE} !important; }
     .seq-off { opacity: .35; }
-    .flag-on { background: ${ORANGE} !important; }
-    .flag-on + div { color: #fff !important; }
+    /* sequencer: flat step blocks; the selection is drawn in ink, the accent is kept for what is on */
+    .seq-cell { position:absolute; border-radius:6px; cursor:pointer; z-index:5; background:var(--cell); transition:background-color .12s,opacity .2s; }
+    .seq-cell:hover { background:var(--cell-hi); }
+    .pop .seq-cell.seq-sel { box-shadow:inset 0 0 0 2px var(--pop-ink) !important; }
+    .seq-cell.seq-now { background:var(--wash); }
+    .seq-cell.seq-off { opacity:.35; }
+    .seq-play { position:absolute; height:4px; border-radius:6px 6px 0 0; background:var(--pop-accent); opacity:0; pointer-events:none; z-index:6; transition:opacity .06s; }
+    .seq-flag { position:absolute; height:24px; border-radius:4px; cursor:pointer; z-index:7; transition:background-color .1s; }
+    .seq-flag::before { content:''; position:absolute; left:8px; top:7px; width:9px; height:9px; border-radius:2px; box-shadow:inset 0 0 0 1.5px var(--pop-ink2); }
+    .seq-flag:hover { background:var(--cell-hi); }
+    .seq-flagtxt { opacity:.6; }
+    .flag-on { background:var(--pop-accent) !important; }
+    .flag-on::before { background:var(--pop-bg2); box-shadow:none; }
+    .flag-on + div { color:var(--pop-bg2) !important; opacity:1; }
+    .seq-note.empty { opacity:.25; }
+    @media (prefers-reduced-motion: reduce) { .pop *, .pop { animation:none !important; transition:none !important; } }
     .key-down { filter: brightness(.86); }
     /* desktop mode - layout generated from DK_LINES in gen.mjs */
     .dk-only, .dk-only.dk { display: none; }

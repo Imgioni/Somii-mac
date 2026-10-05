@@ -1,0 +1,31 @@
+{
+  "artboards": [
+    {
+      "file": "Main.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 3492,
+      "h": 1341,
+      "title": "Geminus - front panel"
+    },
+    {
+      "file": "LayerRow.dc.html",
+      "x": 0,
+      "y": 1427,
+      "w": 3298,
+      "h": 330,
+      "title": "Layer row at 1.5x"
+    },
+    {
+      "file": "Components.dc.html",
+      "x": 3652,
+      "y": 0,
+      "w": 1180,
+      "h": 700,
+      "title": "Component sheet"
+    }
+  ],
+  "launch": {
+    "view": "canvas"
+  }
+}

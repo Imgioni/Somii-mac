@@ -13,6 +13,7 @@ struct GeminusLifecycleCheck : juce::Timer
     juce::File outDir;
     double openedAt = 0, deadline = 0;
     int round = 0, failures = 0;
+    bool checkingPage = false, pageChecked = false;
     static constexpr int kRounds = 5;
 
     explicit GeminusLifecycleCheck (juce::File dir) : outDir (dir) { open(); startTimer (20); }
@@ -25,6 +26,7 @@ struct GeminusLifecycleCheck : juce::Timer
 
     void open()
     {
+        checkingPage = pageChecked = false;
         editor.reset (processor.createEditor());
         editor->addToDesktop (juce::ComponentPeer::windowAppearsOnTaskbar);
         editor->setTopLeftPosition (40, 40);
@@ -73,6 +75,46 @@ struct GeminusLifecycleCheck : juce::Timer
         if (! ready && now < deadline) return;
         // Give the compositor a moment to present, then look at what is on screen.
         if (ready && now - openedAt < (round == 0 ? 2500 : 600)) return;
+
+        // A painted HTML page can still have a dead control script. Exercise the
+        // real embedded module and its native parameter relay before reopening.
+        if (! checkingPage)
+        {
+            checkingPage = true;
+            const int width = round % 2 == 0 ? 1190 : 1500;
+            editor->setSize (width, juce::roundToInt (width * double (session.pageH) / session.pageW));
+            deadline = now + 5000;
+            openedAt = now; // allow the browser's resize event to fit the panel
+            return;
+        }
+        if (! pageChecked)
+        {
+            pageChecked = true;
+            stopTimer();
+            session.web->evaluateJavascript (R"JS(
+                (() => {
+                    const d = window.geminusDiagnostics;
+                    if (!d || !d.hosted || d.errors.length || !window.geminusFit) return false;
+                    const panel = document.getElementById('panel').getBoundingClientRect();
+                    const fits = panel.width <= innerWidth + 2 && panel.height <= innerHeight + 2;
+                    const control = document.querySelector('[data-param="upper.vcf.lpf"][data-ctl="fader"]');
+                    if (!control) return false;
+                    const before = Number(control.dataset.normalized);
+                    control.dispatchEvent(new WheelEvent('wheel', {deltaY: before > .5 ? 1 : -1, cancelable: true}));
+                    return fits && Number(control.dataset.normalized) !== before;
+                })()
+            )JS", [this] (juce::WebBrowserComponent::EvaluationResult result)
+            {
+                check (result.getResult() != nullptr && static_cast<bool> (*result.getResult()),
+                       "UI initialized, control responds, resized panel fits");
+                const auto value = processor.apvts.getParameter ("upper.vcf.lpf")->getValue();
+                check (std::abs (value - (round % 2 == 0 ? 0.98f : 0.96f)) < 0.001f,
+                       "control change reaches native synth parameter");
+                processor.apvts.getParameter ("upper.vcf.lpf")->setValueNotifyingHost (round % 2 == 0 ? 0.98f : 1.0f);
+                startTimer (20);
+            });
+            return;
+        }
 
         float white = 1; int colours = 0;
         capture (white, colours);

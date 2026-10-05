@@ -278,7 +278,10 @@ struct EchoDelay final : Unit
 struct Convolver final : Unit
 {
     double fs = 48000.0;
-    juce::dsp::Convolution conv;
+    // two-stage non-uniform partitions, still zero latency: a 512-sample head, longer partitions for
+    // the tail. The default uniform engine partitions at the host's block size, so its cost grew as
+    // the buffer shrank (2.2 s IR, 64-sample buffer: 10.8 % of a core per instance, now 3.3 %).
+    juce::dsp::Convolution conv { juce::dsp::Convolution::NonUniform { 512 } };
     sg::DelayLine pre[2];
     Biquad lo[2], hi[2];
     float lastLen = -1.0f, lastRev = -1.0f;
@@ -328,33 +331,51 @@ struct Convolver final : Unit
     }
 };
 
-// ── 5. TUBA ───────────────────────────────────────────────────────────────────────────────────
+// ── 5. VALVE ──────────────────────────────────────────────────────────────────────────────────
 // Tube mic / line amp: asymmetric tube curve (MIC) or symmetric (LINE), −20 dB pad, broad shelves.
+// GAIN only adds saturation (user, 2026-10-05): the drive stage's output is matched to its input's
+// loudness - RMS over ~300 ms, measured on both at once so note starts do not pump - and held through
+// silence. LF / HF and OUTPUT come after the match, so they change the level as they should.
 struct Tuba final : Unit
 {
     double fs = 48000.0;
     Oversampled os;
     OnePole dc[2];
     Biquad lf[2], hf[2];
-    float lvl = 0.0f;
+    float lvl = 0.0f, pIn = 0.0f, pOut = 0.0f, match = 1.0f;
     void prepare (double s, int maxBlock) override { fs = s; os.prepare (maxBlock); for (auto& d : dc) d.setHz (8.0f, fs); }
-    void reset() override { os.reset(); for (int c = 0; c < 2; ++c) { dc[c].reset(); lf[c].reset(); hf[c].reset(); } }
+    void reset() override { os.reset(); pIn = pOut = 0.0f; match = 1.0f; for (int c = 0; c < 2; ++c) { dc[c].reset(); lf[c].reset(); hf[c].reset(); } }
     void process (float* l, float* r, int n, const Ctx& c) override
     {
         const float* v = c.v;
         const float k = dbToGain (v[0]) * (0.3f + v[1] * 0.014f) * (v[9] >= 0.5f ? 0.1f : 1.0f);
         const float b = v[8] >= 0.5f ? 0.0f : 0.25f, tb = std::tanh (b), norm = 1.0f / std::max (0.3f, std::tanh (k));
         float pk = 0.0f;
-        for (int i = 0; i < n; ++i) pk = std::max (pk, std::max (std::abs (l[i]), std::abs (r[i])));
+        double eIn = 0.0;
+        for (int i = 0; i < n; ++i) { pk = std::max (pk, std::max (std::abs (l[i]), std::abs (r[i]))); eIn += l[i] * l[i] + r[i] * r[i]; }
         lvl = std::max (pk, lvl * 0.85f); vis[0].store (lvl, std::memory_order_relaxed);
-        os.run (l, r, n, [&] (int, float x) { return (std::tanh (k * x + b) - tb) * norm; });
-        const float out = dbToGain (v[4]);
+        const float amt = clampf (v[0] / 6.0f, 0.0f, 1.0f);   // GAIN 0 dB is clean; the valve fades in over the first 6 dB
+        os.run (l, r, n, [&] (int, float x) { return x + ((std::tanh (k * x + b) - tb) * norm - x) * amt; });
         float* io[2] = { l, r };
+        double eOut = 0.0;
+        for (int ch = 0; ch < 2; ++ch)
+            for (int i = 0; i < n; ++i) { io[ch][i] = dc[ch].hp (io[ch][i]); eOut += io[ch][i] * io[ch][i]; }
+        // the loudness match: both powers follow over ~300 ms; the gain glides across the block
+        const float a = std::exp (-static_cast<float> (n) / (0.3f * static_cast<float> (fs)));
+        pIn = a * pIn + (1.0f - a) * static_cast<float> (eIn / (2 * n));
+        pOut = a * pOut + (1.0f - a) * static_cast<float> (eOut / (2 * n));
+        const float from = match;
+        if (pIn > 1.0e-8f && pOut > 1.0e-10f) match = clampf (std::sqrt (pIn / pOut), 0.02f, 4.0f);   // silence: hold
+        const float out = dbToGain (v[4]);
         for (int ch = 0; ch < 2; ++ch)
         {
             lf[ch].set (Biquad::LowShelf, 100.0f, 0.5f, v[2], fs);
             hf[ch].set (Biquad::HighShelf, 8000.0f, 0.5f, v[3], fs);
-            for (int i = 0; i < n; ++i) io[ch][i] = hf[ch].process (lf[ch].process (dc[ch].hp (io[ch][i]))) * out;
+            for (int i = 0; i < n; ++i)
+            {
+                const float g = from + (match - from) * static_cast<float> (i + 1) / static_cast<float> (n);
+                io[ch][i] = hf[ch].process (lf[ch].process (io[ch][i] * g)) * out;
+            }
         }
     }
 };
@@ -402,8 +423,8 @@ struct Saturn final : Unit
                 if (first) { x1[ch].set (f1, ofs); x2[ch].set (f2, ofs); } else { x1[ch].setKeep (f1, ofs); x2[ch].setKeep (f2, ofs); }
         }
         const int style = static_cast<int> (v[8]);
-        float g[3], comp[3];
-        for (int b = 0; b < 3; ++b) { g[b] = dbToGain (v[2 + b]); comp[b] = 1.0f / std::sqrt (g[b]); }
+        float g[3], comp[3], amt[3];   // a band at 0 dB drive is clean; its style fades in over the first 6 dB
+        for (int b = 0; b < 3; ++b) { g[b] = dbToGain (v[2 + b]); comp[b] = 1.0f / std::sqrt (g[b]); amt[b] = clampf (v[2 + b] / 6.0f, 0.0f, 1.0f); }
         const float dyn = v[5] * 0.01f;
         os.run (l, r, n, [&] (int ch, float x)
         {
@@ -419,7 +440,7 @@ struct Saturn final : Unit
                     const float ef = fast[ch][b].process (band[b]), es = slow[ch][b].process (band[b]);
                     d *= clampf (std::pow ((ef + 1.0e-5f) / (es + 1.0e-5f), dyn * 0.8f), 0.25f, 4.0f);
                 }
-                y += saturnShape (style, band[b] * d) * comp[b];
+                y += band[b] + (saturnShape (style, band[b] * d) * comp[b] - band[b]) * amt[b];
             }
             return y;
         });
@@ -469,12 +490,13 @@ struct Distortion final : Unit
         lvl = std::max (pk, lvl * 0.85f); vis[0].store (lvl, std::memory_order_relaxed);
         const float k = dbToGain (v[0]), bias = v[1] * 0.005f;
         const int type = static_cast<int> (v[8]);
+        const float amt = clampf (v[0] / 6.0f, 0.0f, 1.0f);
         const float b0 = distShape (type, bias), norm = 1.0f / std::max (0.25f, std::abs (distShape (type, k * 0.5f + bias) - b0) * 2.0f);
         os.run (l, r, n, [&] (int ch, float x)
         {
             float y = (distShape (type, k * x + bias) - b0) * std::min (1.0f, norm * 0.5f + 0.5f);
             if (type == 3) y *= clampf (gate[ch].process (x) * 60.0f, 0.0f, 1.0f);   // FUZZ gates its tail
-            return y;
+            return x + (y - x) * amt;   // DRIVE 0 dB is clean; the shape fades in over the first 6 dB
         });
         const float out = dbToGain (v[4]);
         for (int ch = 0; ch < 2; ++ch)
@@ -542,7 +564,7 @@ struct Vulf final : Unit
     {
         const float* v = c.v;
         const float in = dbToGain (v[0]), amt = v[1] * 0.01f, out = dbToGain (v[6]);
-        const float thr = -8.0f - amt * 32.0f, ratio = 2.0f + amt * 18.0f;
+        const float thr = -8.0f - amt * 32.0f, ratio = 1.0f + amt * 19.0f;   // COMPRESS 0 % = ratio 1: no reduction
         det.set (v[2] * 0.001f, v[3] * 0.001f, fs);
         grSm.setHz (200.0f, fs);
         const float wf = v[4] * 0.01f, lofi = v[5] * 0.01f;
@@ -567,9 +589,11 @@ struct Vulf final : Unit
             {
                 wob[ch].push (x[ch] * g);
                 float y = wob[ch].read (d);
-                y = std::tanh (y * (1.1f + lofi * 2.0f)) / (1.1f + lofi * 0.8f);   // colour, even at 0 %
+                // colour grows with COMPRESS and GRIT; at 0 % both, the signal passes clean
+                const float tone = std::min (1.0f, amt * 2.0f + lofi * 4.0f);
+                y += (std::tanh (y * (1.1f + lofi * 2.0f)) / (1.1f + lofi * 0.8f) - y) * tone;
                 if (take) held[ch] = y;
-                y = lofiLp[ch].lp (lofi > 0.01f ? held[ch] : y) + rng.bi() * lofi * 0.004f;
+                if (lofi > 0.01f) y = lofiLp[ch].lp (held[ch]) + rng.bi() * lofi * 0.004f;
                 io[ch][i] = y * out;
             }
         }
@@ -609,7 +633,7 @@ struct Faraday final : Unit
             for (int ch = 0; ch < 2; ++ch)
             {
                 float y = io[ch][i] * g;
-                y = std::tanh (y * sat) / sat;
+                y += (std::tanh (y * sat) / sat - y) * std::min (1.0f, color * 4.0f);   // COLOR 0 % = a clean limiter
                 y = dc[ch].hp (y + vibe * 0.25f * y * y);
                 io[ch][i] = hi[ch].process (lo[ch].process (y)) * out;
             }
@@ -1024,10 +1048,10 @@ struct Ambient final : Unit
     }
 };
 
-// ── 19. VALLEYVERB ────────────────────────────────────────────────────────────────────────────
-// VintageVerb-style algorithmic reverb. MODE picks the space (its scale, early reflections,
+// ── 19. SPACES ────────────────────────────────────────────────────────────────────────────
+// Algorithmic reverb. MODE picks the space (its scale, early reflections,
 // diffusion and brightness); COLOR picks the era: 1970s dark and grainy, 1980s bright with a
-// little grit, NOW clean. Pre-delay -> early reflections + attack diffusion -> FDN -> late diffusion.
+// little grit, NOW clean (shown as AGED / DIGITAL / CLEAN). Pre-delay -> early reflections + attack diffusion -> FDN -> late diffusion.
 struct ValleyVerb final : Unit
 {
     struct Space { float scale, er, diff, bright, build; };
@@ -1238,7 +1262,7 @@ struct Nudestort final : Unit
             if (gCount <= 0.0f) { gCount = 0.004f * static_cast<float> (fs) * (0.5f + rng.next()); for (auto& t : gTarget) t = rng.next() * grainAmt * 0.004f * static_cast<float> (fs); }
             for (int ch = 0; ch < 2; ++ch)
             {
-                float x = damp[ch].lp (io[ch][i] * inG);
+                float x = v[2] > 0.0f ? damp[ch].lp (io[ch][i] * inG) : io[ch][i] * inG;   // DAMPING 0 % is no filter
                 pk = std::max (pk, std::abs (x));
                 gNow[ch] += 0.01f * (gTarget[ch] - gNow[ch]);
                 grain[ch].push (x);
@@ -1251,7 +1275,8 @@ struct Nudestort final : Unit
         if (wCount <= 0.0f) { wCount = 0.15f * static_cast<float> (fs); wanderT = wild ? rng.bi() : 0.0f; }
         wander += 0.2f * (wanderT - wander);
         const float k = dbToGain (v[0] + wander * 6.0f), bias = wander * 0.3f, b0 = drive (type, bias);
-        os.run (l, r, n, [&] (int, float x) { return drive (type, k * x + bias) - b0; });
+        const float amt = clampf (v[0] / 6.0f + std::abs (wander), 0.0f, 1.0f);   // DRIVE 0 dB is clean; it fades in over 6 dB
+        os.run (l, r, n, [&] (int, float x) { return x + (drive (type, k * x + bias) - b0 - x) * amt; });
         const float dlyMix = v[3] * 0.01f, fb = v[5] * 0.0095f, ab = v[6] * 0.01f, t = v[4] * 0.001f * static_cast<float> (fs);
         for (int i = 0; i < n; ++i)
         {
@@ -1276,6 +1301,72 @@ struct Nudestort final : Unit
                 io[ch][i] = (y + dlyMix * echo) * outG;
             }
         }
+    }
+};
+
+// ── 22. PARLOUR ───────────────────────────────────────────────────────────────────────────────
+// A warm room with a plate's density (after the signal flow of Analog Obsession's ROOM041, our own
+// voicing): tube-style DRIVE (±24 dB, asymmetric so it thickens), an HPF before the reverb, a short
+// diffuser chain into the FDN for a plate-like instant build, STEREO separation on the wet signal,
+// then a post EQ of a low and a high shelf. vis[0] = input level after the preamp.
+struct Parlour final : Unit
+{
+    double fs = 48000.0;
+    sg::DelayLine pre[2];
+    Allpass diff[2][4];
+    Fdn fdn;
+    Biquad hpf[2], lo[2], hi[2];
+    float lvl = 0.0f;
+    void prepare (double s, int) override
+    {
+        fs = s; fdn.prepare (fs);
+        static constexpr float d[4] = { 0.0031f, 0.0047f, 0.0083f, 0.0127f };
+        for (int c = 0; c < 2; ++c)
+        {
+            pre[c].prepare (static_cast<int> (0.26 * fs));
+            for (int k = 0; k < 4; ++k) { diff[c][k].prepare (static_cast<int> (0.02 * fs)); diff[c][k].len = d[k] * (c ? 1.063f : 1.0f) * static_cast<float> (fs); diff[c][k].g = 0.68f; }
+        }
+    }
+    void reset() override
+    {
+        fdn.reset(); lvl = 0.0f;
+        for (int c = 0; c < 2; ++c) { pre[c].clear(); hpf[c].reset(); lo[c].reset(); hi[c].reset(); for (auto& a : diff[c]) a.reset(); }
+    }
+    static float tube (float u) noexcept { return u >= 0.0f ? std::tanh (u) : 1.2f * std::tanh (u / 1.2f); }
+    void process (float* l, float* r, int n, const Ctx& c) override
+    {
+        const float* v = c.v;
+        const float k = dbToGain (v[0]), stereo = v[2] * 0.01f, pd = std::max (1.0f, v[3] * 0.001f * static_cast<float> (fs));
+        fdn.set (0.32f, v[4], 8500.0f, 0.18f, false, 0.6f);
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            hpf[ch].set (Biquad::HP, v[1], 0.7071f, 0, fs);
+            lo[ch].set (Biquad::LowShelf, v[5], 0.7071f, v[6], fs);
+            hi[ch].set (Biquad::HighShelf, v[7], 0.7071f, v[11], fs);
+        }
+        float* io[2] = { l, r };
+        float peak = 0.0f;
+        for (int i = 0; i < n; ++i)
+        {
+            float in[2];
+            for (int ch = 0; ch < 2; ++ch)
+            {
+                // preamp: below unity the drive is a clean pad; above it the tube curve takes over
+                const float x = io[ch][i] * k, y = hpf[ch].process (k > 1.0f ? tube (x) : x);
+                peak = std::max (peak, std::abs (y));
+                pre[ch].push (y);
+                float z = pre[ch].read (pd);
+                for (auto& a : diff[ch]) z = a.process (z);
+                in[ch] = z;
+            }
+            float ol, orr;
+            fdn.process (in[0], in[1], ol, orr);
+            width (ol, orr, stereo);
+            io[0][i] = hi[0].process (lo[0].process (ol));
+            io[1][i] = hi[1].process (lo[1].process (orr));
+        }
+        lvl = std::max (peak, lvl * 0.9f);
+        vis[0].store (lvl, std::memory_order_relaxed);
     }
 };
 } // namespace
@@ -1305,6 +1396,7 @@ static std::unique_ptr<Unit> createUnit (int type)
         case fxdefs::Valleyverb: return std::make_unique<ValleyVerb>();
         case fxdefs::Imager:     return std::make_unique<Imager>();
         case fxdefs::Nudestort:  return std::make_unique<Nudestort>();
+        case fxdefs::Parlour:    return std::make_unique<Parlour>();
         default:                 return std::make_unique<Bypass>();
     }
 }

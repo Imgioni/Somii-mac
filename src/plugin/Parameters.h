@@ -29,14 +29,17 @@ public:
 
 private:
     std::atomic<float> *dds1Wave{}, *dds1Range{}, *altA{}, *altB{};
-    std::atomic<float> *smpOn{}, *smpLoop{}, *smpStart{}, *smpEnd{}, *smpLoopStart{}, *smpLevel{}, *smpRoot{}, *smpFine{};
+    std::atomic<float> *smpOn{}, *smpLoop{}, *smpStart{}, *smpEnd{}, *smpLoopStart{}, *smpLevel{}, *smpRoot{}, *smpFine{}, *smpSlices{}, *smpSense{};
     std::atomic<float> *dds2Wave{}, *dds2Range{}, *dds2Tune{}, *dds2Mode{};
     std::atomic<float> *mix{}, *pan{};
     std::atomic<float> *drive{}, *hpf{}, *lpf{}, *res{}, *envSource{}, *keytrack{}, *vcfEnv{}, *vcfLfo{}, *vcfDds2{};
+    std::atomic<float> *twCutoff{}, *twRes{}, *twEnv{}, *twKey{}, *twComp{}, *svfEnv{}, *svfVelocity{}, *svfKey{};
+    std::atomic<float> *vcfStyle{}, *vcfSat{}, *vcfVel{};
+    std::atomic<float> *svfOn{}, *svfCutoff{}, *svfRes{}, *svfMode{}, *svfBand{};
     std::atomic<float> *vcaLevel{}, *vcaLfo{}, *vcaDds2{}, *vcaEnv{}, *dynamics{};
     std::atomic<float> *e1AH{}, *e1A{}, *e1DH{}, *e1D{}, *e1S{}, *e1R{}, *e1Mode{}, *e1Kt{};
     std::atomic<float> *e2A{}, *e2DH{}, *e2D{}, *e2S{}, *e2R{};
-    std::atomic<float> *lfoWave{}, *lfoRate{}, *lfoDelay{}, *lfoLr{}, *lfoMode{};
+    std::atomic<float> *lfoWave{}, *lfoRate{}, *lfoDelay{}, *lfoLr{}, *lfoMode{}, *lfoPhaseMode{};
     std::atomic<float> *pLfo{}, *pEnv{}, *pDest{}, *superMode{}, *pw{}, *drift{}, *pwm{}, *pwmSrc{}, *xmod{};
     std::atomic<float> *benderDds{}, *benderVcf{}, *destOsc{};
     std::atomic<float> *lfo2Wave{}, *lfo2Rate{}, *lfo2Delay{}, *lfo2Trig{}, *lfo2RateMod{}, *lfo2Dds{}, *lfo2Vcf{}, *lfo2Vca{};

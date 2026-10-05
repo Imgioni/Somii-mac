@@ -1,0 +1,62 @@
+<!doctype html>
+<!-- 002 by SPKR app icon (from the user's sketch, 2026-09-20): 002 between two rules over a flat grey
+     keybed that fades out at the bottom (no "by SPKR" line; the keys are drawn, not photographed).
+     Dressed like spkr.shop (spkr-shop/v2/index.html): charcoal ground with the hazy washes, still grain
+     on the ground only, Archivo + Martian Mono. Open at 1024 x 1024; ?s=256 for another size. -->
+<html><head><meta charset="utf-8"><title>002 Icon</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=Martian+Mono:wdth,wght@75..112.5,300..600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ground:#46494C;
+    --smoke:rgba(129,141,146,.55); --umber:rgba(185,163,148,.38); --tan:rgba(212,197,199,.28); --stone:rgba(197,195,198,.20);
+    --ink:#C5C3C6; --muted:#D4C5C7; --line:rgba(197,195,198,.30);
+    --display:"Archivo","Arial Narrow",Impact,sans-serif; --mono:"Martian Mono",ui-monospace,Consolas,monospace;
+  }
+  html, body { margin:0; background:#2a2c2e; }
+  body { display:grid; place-items:center; min-height:100vh; }
+  #icon { position:relative; width:1024px; height:1024px; overflow:hidden; border-radius:180px; isolation:isolate;
+    background:
+      radial-gradient(55% 72% at 90% 4%, var(--umber), transparent 70%),
+      radial-gradient(45% 64% at 8% 0%, var(--stone), transparent 70%),
+      radial-gradient(50% 67% at 2% 48%, var(--smoke), transparent 70%),
+      radial-gradient(42% 61% at 96% 58%, var(--tan), transparent 70%),
+      radial-gradient(46% 64% at 18% 100%, var(--stone), transparent 70%),
+      var(--ground);
+    color:var(--ink); font-family:var(--display); }
+  /* still grain, on the ground only (the site's rule: never over type or images) */
+  .grain { position:absolute; inset:0; z-index:0; opacity:.14; pointer-events:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 1.6 -.3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+  #icon > :not(.grain) { position:absolute; z-index:1; }
+  .mono { font-family:var(--mono); font-size:26px; letter-spacing:.08em; text-transform:uppercase; font-stretch:87.5%; }
+  .label { font-family:var(--display); font-stretch:125%; font-weight:300; letter-spacing:.32em; text-transform:uppercase; }
+  .meta { left:110px; right:110px; top:92px; display:flex; justify-content:space-between; }
+  .mark { left:0; right:0; top:170px; display:flex; align-items:center; gap:30px; }
+  .rule { flex:1; height:4px; background:var(--line); }
+  .num { font-weight:900; font-stretch:62%; font-size:470px; line-height:.74; letter-spacing:-.035em; padding-top:.06em; }
+  /* flat drawn keys in the ink grey, fading out toward the bottom edge */
+  .keys { left:0; top:640px; width:1024px; height:384px;
+    -webkit-mask-image:linear-gradient(#000 0%, rgba(0,0,0,.55) 45%, transparent 100%);
+            mask-image:linear-gradient(#000 0%, rgba(0,0,0,.55) 45%, transparent 100%); }
+</style></head>
+<body>
+<div id="icon">
+  <div class="grain" aria-hidden="true"></div>
+  <div class="meta mono"><span>SPKR.SHOP</span><span>VST3</span></div>
+  <div class="mark"><span class="rule"></span><span class="num">002</span><span class="rule"></span></div>
+  <svg class="keys" id="keys" viewBox="0 0 1024 384" aria-hidden="true"></svg>
+</div>
+<script>
+  // one row of keys starting on E, like the sketch: white keys as translucent grey slabs, black keys dark
+  { const W = 136, B = 80, BH = 210, x0 = -60, whites = 9, g = [];
+    const hasBlack = [false, true, true, true, false, true, true];   // a black key right of E F G A B C D?
+    g.push('<rect x="0" y="0" width="1024" height="4" fill="rgba(197,195,198,.30)"/>');
+    for (let i = 0; i < whites; i++)
+      g.push(`<rect x="${x0 + i * W + 3}" y="10" width="${W - 6}" height="400" rx="10" fill="#C5C3C6" fill-opacity=".30"/>`);
+    for (let i = 0; i < whites; i++)
+      if (hasBlack[i % 7]) g.push(`<rect x="${x0 + (i + 1) * W - B / 2}" y="10" width="${B}" height="${BH}" rx="8" fill="#35373A"/>`);
+    document.getElementById('keys').innerHTML = g.join(''); }
+  const s = +new URLSearchParams(location.search).get('s');
+  if (s) document.getElementById('icon').style.zoom = s / 1024;
+</script>
+</body></html>

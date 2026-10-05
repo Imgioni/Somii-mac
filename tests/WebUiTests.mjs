@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import './UiSyntaxTests.mjs';
 import { ParameterStore } from '../ui/parameter-store.js';
 const html = fs.readFileSync(new URL('../ui/index.html', import.meta.url), 'utf8');
 const specs = JSON.parse(html.match(/<script id="parameter-spec" type="application\/json">(.*?)<\/script>/s)[1]);
 const local = new ParameterStore(specs);
 let checks = 0;
 const check = (condition, message) => { assert.ok(condition, message); checks++; };
-check(Object.keys(specs).length === 782, 'all parameters embedded');
+const parameterIds = fs.readFileSync(new URL('../params.tsv', import.meta.url), 'utf8').trim().split(/\r?\n/).map(row => row.split('\t')[0]);
+assert.deepEqual(Object.keys(specs).sort(), parameterIds.sort(), 'all parameters embedded');
 for (const [id, spec] of Object.entries(specs)) {
   check(local.read(id) === spec.def, `${id} uses the APVTS default`);
   local.write(id, 2); check(local.read(id) === 1, `${id} clamps upper bound`);
@@ -47,4 +49,37 @@ check(ids.length===new Set(ids).size, 'all DOM ids are unique');
 const available=new Set(ids);
 for(const m of html.matchAll(/data-(?:vis|ind|led)="([^"]+)"/g)) check(available.has(m[1]), 'sprite target exists: '+m[1]);
 check(!/fonts\.google|https?:\/\//.test(html), 'page has no external dependencies');
+// Themes: every theme the generator defines must exist everywhere it is needed. A theme also used
+// to need its name in the plugin's C++ whitelist, where "dark" was missed, so it fell back to
+// GEMINI inside the VST while working in the browser. That list is gone and must not come back.
+const gen = fs.readFileSync(new URL('../ui/gen.mjs', import.meta.url), 'utf8');
+const runtime = fs.readFileSync(new URL('../ui/geminus.js', import.meta.url), 'utf8');
+const editor = fs.readFileSync(new URL('../src/plugin/WebEditor.cpp', import.meta.url), 'utf8');
+const themeKeys = gen.match(/const THEME_KEYS = \[([^\]]+)\]/)[1].split(',').map(t => t.trim().replace(/'/g, ''));
+const runtimeThemes = runtime.match(/const THEMES = \[([^\]]+)\]/)[1].split(',').map(t => t.trim().replace(/'/g, ''));
+check(themeKeys.length > 1, 'the generator defines themes');
+assert.deepEqual(runtimeThemes, themeKeys, 'geminus.js knows the same themes as gen.mjs');
+const uiThemeFn = editor.slice(editor.indexOf('"uiTheme"'), editor.indexOf('"uiTheme"') + 800);
+for (const [i, t] of themeKeys.entries()) {
+  const action = 'theme' + t[0].toUpperCase() + t.slice(1);
+  check(html.includes('data-action="' + action + '"'), t + ' has a SETTINGS button');
+  check(runtime.includes(action + ':'), t + ' has a runtime action');
+  if (i > 0) {
+    check(html.includes('body.theme-' + t + ' {'), t + ' has its own palette block');
+    check(!uiThemeFn.includes('"' + t + '"'), 'the plugin does not enumerate theme ' + t);
+  }
+}
+for (const layer of ['upper', 'lower']) {
+  local.write(layer + '.vcf.lpf', .23);
+  local.write(layer + '.tw.cutoff', .78);
+  for (const style of [1, 0, 1, 0]) {
+    local.write(layer + '.vcf.style', style);
+    check(local.read(layer + '.vcf.lpf') === .23, 'SG cutoff survives style switch');
+    check(local.read(layer + '.tw.cutoff') === .78, '3W cutoff survives style switch');
+  }
+  for (const leaf of ['tw.cutoff','tw.res','tw.envAmt','tw.keytrack','tw.resComp','svf.envAmt','svf.velocity','svf.keytrack'])
+    check(html.includes('data-param="' + layer + '.' + leaf + '"'), 'independent filter control: ' + leaf);
+  for (const leaf of ['vcf.lpf','vcf.res','vcf.envAmt'])
+    check(!html.includes('id="' + layer + '.' + leaf + '__3w"'), '3W does not reuse SG parameter: ' + leaf);
+}
 console.log(`${checks} Web UI checks passed.`);

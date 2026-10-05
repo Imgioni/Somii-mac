@@ -9,7 +9,7 @@ namespace
 LayerParams openPatch()
 {
     LayerParams p;             // init: DDS 1 SAW 8', MIX = DDS 1, LPF open, ENV 2 sustain 10
-    p.e2Release = 0.3f;
+    p.e2Release = 0.0398f;   // 16 ms
     return p;
 }
 } // namespace
@@ -341,6 +341,62 @@ public:
                 logMessage ("  sample level through the voice: " + juce::String (db, 2) + " dB");
                 expectWithinAbsoluteError (db, 0.0, 0.5, "a sample plays at its own level");
             }
+        }
+
+        beginTest ("CUSTOM SLICE: transients found, one slice per key at its own speed (user, 2026-10-05)");
+        {
+            // 1 s of silence with four 1 kHz bursts at 0.10, 0.35, 0.60 and 0.85 s, each 0.1 s long
+            Sample hits;
+            hits.rate = 44100.0f; hits.frames = 44100;
+            hits.l.assign (44101, 0.0f); hits.r.assign (44101, 0.0f);
+            const float at[4] = { 0.10f, 0.35f, 0.60f, 0.85f };
+            for (float t0 : at)
+                for (int i = 0; i < 4410; ++i)
+                    hits.l[static_cast<size_t> (t0 * 44100.0f) + static_cast<size_t> (i)] = hits.r[static_cast<size_t> (t0 * 44100.0f) + static_cast<size_t> (i)]
+                        = 0.8f * std::sin (kTwoPi * 1000.0f * static_cast<float> (i) / 44100.0f);
+            hits.findOnsets();
+            expectEquals (static_cast<int> (hits.onsetPos.size()), 4, "four transients");
+            for (size_t j = 0; j < std::min<size_t> (4, hits.onsetPos.size()); ++j)
+                expectWithinAbsoluteError (hits.onsetPos[j] / 44100.0, static_cast<double> (at[j]), 0.012, "transient " + juce::String (static_cast<int> (j)));
+
+            auto rms = [] (const std::vector<float>& v, size_t a, size_t b)
+            { double s = 0.0; for (size_t i = a; i < b; ++i) s += v[i] * v[i]; return std::sqrt (s / static_cast<double> (b - a)); };
+            auto p = openPatch();
+            p.smpOn = true; p.smpSlice = true; p.smpRoot = 60; p.smpSense = 0.5f;
+            auto play = [&] (int note) { LayerEngine e; e.setCustomSample (&hits); sgt::prepareEngine (e, p); return sgt::renderNote (e, note, 1.0f, 0.3); };
+            const size_t ms = static_cast<size_t> (sgt::kFs / 1000.0);
+            // AUTO: C4 = the lead-in before the first hit (silence), C#4 = the first hit, then one key per hit
+            expectLessThan (rms (play (60).l, 0, 90 * ms), 1.0e-3, "C4: the silent lead-in");
+            const auto s1 = play (61);
+            expectGreaterThan (rms (s1.l, 10 * ms, 90 * ms), 0.05, "C#4: the first hit, at once");
+            expectLessThan (rms (s1.l, 160 * ms, 240 * ms), 1.0e-3, "C#4 ends where the next hit starts");
+            expectWithinAbsoluteError (sgt::zeroCrossingHz (s1.l, sgt::kFs, 10 * ms, 90 * ms), 1000.0, 15.0, "a slice plays at its own speed");
+            expectGreaterThan (rms (play (64).l, 10 * ms, 90 * ms), 0.05, "E4: the fourth hit");
+            expectLessThan (rms (play (66).l, 0, 250 * ms), 1.0e-3, "past the last slice: silent");
+            expectLessThan (rms (play (59).l, 0, 250 * ms), 1.0e-3, "below ROOT KEY: silent");
+            // 4 equal slices: D4 is 0.50 - 0.75 s, whose hit starts 0.1 s in
+            p.smpSlices = 4;
+            const auto q = play (62);
+            expectLessThan (rms (q.l, 0, 90 * ms), 1.0e-3, "equal slice: silent before its hit");
+            expectGreaterThan (rms (q.l, 110 * ms, 190 * ms), 0.05, "equal slice: then the hit");
+        }
+
+        beginTest ("CUSTOM overview of a long file (the 2026-10-05 crash: points * frames overflowed int)");
+        {
+            // 95 s at 48 kHz: 60 Hz for the first half, 8 kHz for the second
+            Sample song;
+            song.rate = 48000.0f; song.frames = 95 * 48000;
+            song.l.resize (static_cast<size_t> (song.frames) + 1); song.r.resize (static_cast<size_t> (song.frames) + 1);
+            for (int i = 0; i <= song.frames; ++i)
+                song.l[static_cast<size_t> (i)] = song.r[static_cast<size_t> (i)] = 0.5f * std::sin (kTwoPi * (i < song.frames / 2 ? 60.0f : 8000.0f) * static_cast<float> (i) / 48000.0f);
+            const auto ov = song.overview (1024);
+            float top = 0.0f; bool finite = true;
+            for (size_t p = 0; p < 1024; ++p) { top = std::max (top, ov.hi[p]); finite = finite && std::isfinite (ov.lo[p]) && std::isfinite (ov.rms[p]); }
+            expect (finite, "every column is a number");
+            expectWithinAbsoluteError (top, 1.0f, 0.01f, "peaks scaled to the loudest");
+            expectGreaterThan (ov.low[100], 0.8f, "the 60 Hz half reads as lows");
+            expectGreaterThan (ov.high[900], 0.8f, "the 8 kHz half reads as highs");
+            expectWithinAbsoluteError (ov.rms[900], 0.707f, 0.03f, "RMS of a sine against its peak");
         }
 
         beginTest ("DDS 2 pulse width follows PW and PWM [p.62]");

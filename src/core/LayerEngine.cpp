@@ -14,6 +14,9 @@ void smoothTowards (LayerParams& s, const LayerParams& t, float a) noexcept
     const LayerParams prev = s;
     s = t;   // discrete fields (and matrix amounts) switch immediately
 #define SG_SMOOTH(f) s.f = prev.f + (t.f - prev.f) * a
+    SG_SMOOTH (twCutoff); SG_SMOOTH (twRes); SG_SMOOTH (twEnv); SG_SMOOTH (twKey);
+    SG_SMOOTH (svfEnv); SG_SMOOTH (svfVelocity); SG_SMOOTH (svfKey);
+    SG_SMOOTH (vcfSat); SG_SMOOTH (vcfVelocity); SG_SMOOTH (svfCutoff); SG_SMOOTH (svfRes); SG_SMOOTH (svfModeMix);
     SG_SMOOTH (smpLevel); SG_SMOOTH (dds2Tune); SG_SMOOTH (mix); SG_SMOOTH (pan);
     SG_SMOOTH (hpf); SG_SMOOTH (lpf); SG_SMOOTH (res);
     SG_SMOOTH (vcfEnvAmt); SG_SMOOTH (vcfLfo1Amt); SG_SMOOTH (vcfDds2Amt);
@@ -102,7 +105,7 @@ float LayerEngine::unitLevel (int u) const noexcept
     return voices[static_cast<size_t> (u / 2)].getVoice (u % 2).getLevel();
 }
 
-void LayerEngine::startUnit (int u, int note, float velocity, float unisonSemis, bool declick, bool glide)
+void LayerEngine::startUnit (int u, int note, float velocity, float unisonSemis, bool declick, float glide)
 {
     auto& sv = voices[static_cast<size_t> (binaural ? u : u / 2)];
     sv.startNote (binaural ? 0 : u % 2, note, velocity, unisonSemis, control, declick, glide);
@@ -153,6 +156,8 @@ void LayerEngine::keyOn (int note, float velocity)
     keyVelocity[static_cast<size_t> (note)] = velocity;
     keyStack.erase (std::remove (keyStack.begin(), keyStack.end(), note), keyStack.end());
     keyStack.push_back (note);
+    if (lastKey < 0 || clockSamples - lastKeyAt > static_cast<uint64_t> (0.03 * fs)) glideFrom = lastKey;
+    lastKey = note; lastKeyAt = clockSamples;
 
     if (poolUnits() <= 0) return;
     if (isMono()) monoNoteOn (note, velocity);
@@ -234,7 +239,7 @@ void LayerEngine::polyNoteOn (int note, float velocity)
     }
 
     for (int k = 0; k < count; ++k)
-        startUnit (chosen[static_cast<size_t> (k)], note, velocity, unisonOffset (k, count), true, true);
+        startUnit (chosen[static_cast<size_t> (k)], note, velocity, unisonOffset (k, count), true, glideFrom >= 0 ? static_cast<float> (glideFrom) : Voice::kNoGlide);
 }
 
 void LayerEngine::monoNoteOn (int note, float velocity)
@@ -259,7 +264,7 @@ void LayerEngine::monoNoteOn (int note, float velocity)
         else
         {
             // SOLO: every note retriggers the envelopes [p.90]
-            startUnit (u, note, velocity, unisonOffset (u, count), false, true);
+            startUnit (u, note, velocity, unisonOffset (u, count), false, Voice::kGlideOwn);
         }
     }
     for (int u = count; u < pool; ++u)
@@ -546,8 +551,12 @@ void LayerEngine::process (float* outL, float* outR, int n)
         mods.lfo2Phase += static_cast<double> (mods.lfo2Inc) * len;
         if (mods.lfo2Phase > 1.0e6) mods.lfo2Phase -= 1.0e6;
         beatPos += beatsPerSample * len;
+        clockSamples += static_cast<uint64_t> (len);
         done += len;
     }
+    for (size_t i = 0; i < voices.size(); ++i)
+        for (int s = 0; s < 2; ++s)
+            playheads[i * 2 + static_cast<size_t> (s)].store (voices[i].getVoice (s).samplePlayhead(), std::memory_order_relaxed);
 }
 
 int LayerEngine::getActiveVoiceCount() const noexcept

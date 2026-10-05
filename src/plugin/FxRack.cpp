@@ -226,6 +226,21 @@ void Rack::processChunk (float* uL, float* uR, float* lL, float* lR, int n, doub
                 l[i] = (parallel ? l[i] : xl) + a * (ol - xl);
                 r[i] = (parallel ? r[i] : xr) + a * (or_ - xr);
             }
+            if (L == (sl.layer->load() > 0.5f ? 1 : 0))   // feed the analyser from the layer the display follows
+            {
+                auto& sc = scopes[static_cast<size_t> (s)];
+                int p = sc.pos.load (std::memory_order_relaxed);
+                float pk = 0.0f;
+                for (int i = 0; i < n; ++i)
+                {
+                    const float x = 0.5f * (tl[i] + tr[i]);
+                    pk = std::max (pk, std::abs (x));
+                    sc.buf[static_cast<size_t> (p)].store (x, std::memory_order_relaxed);
+                    p = (p + 1) & (kScope - 1);
+                }
+                sc.pos.store (p, std::memory_order_release);
+                sc.peak.store (std::max (pk, sc.peak.load (std::memory_order_relaxed) * 0.9f), std::memory_order_relaxed);
+            }
             amt = target;
             if (amt <= 0.0f) u->reset();
         }
@@ -237,6 +252,37 @@ float Rack::getVis (int slot, int i) const noexcept
     const auto& s = slots[static_cast<size_t> (juce::jlimit (0, kSlots - 1, slot))];
     const auto* u = s.current[s.layer != nullptr && s.layer->load() > 0.5f ? 1 : 0];
     return u != nullptr ? u->vis[static_cast<size_t> (juce::jlimit (0, 7, i))].load (std::memory_order_relaxed) : 0.0f;
+}
+
+void Rack::spectrum (int slot, float* out) const
+{
+    const auto si = static_cast<size_t> (juce::jlimit (0, kSlots - 1, slot));
+    const auto& sc = scopes[si];
+    const int p = sc.pos.load (std::memory_order_acquire);
+    stale[si] = p == seenPos[si] ? stale[si] + 1 : 0;   // nothing written for a while: the slot is idle
+    seenPos[si] = p;
+    if (stale[si] > 6) { std::fill (out, out + kBands, -90.0f); return; }
+    static juce::dsp::FFT fft (kScopeOrder);
+    static juce::dsp::WindowingFunction<float> win (kScope, juce::dsp::WindowingFunction<float>::hann, false);
+    std::array<float, 2 * kScope> d {};
+    for (int i = 0; i < kScope; ++i) d[static_cast<size_t> (i)] = sc.buf[static_cast<size_t> ((p + i) & (kScope - 1))].load (std::memory_order_relaxed);
+    win.multiplyWithWindowingTable (d.data(), kScope);
+    fft.performFrequencyOnlyForwardTransform (d.data());
+    const double binHz = fs / kScope;
+    for (int b = 0; b < kBands; ++b)
+    {
+        const double f0 = 20.0 * std::pow (1000.0, b / double (kBands)), f1 = 20.0 * std::pow (1000.0, (b + 1) / double (kBands));
+        const int i0 = juce::jlimit (1, kScope / 2 - 1, static_cast<int> (f0 / binHz)), i1 = juce::jlimit (i0, kScope / 2 - 1, static_cast<int> (f1 / binHz));
+        float m = 0.0f;
+        for (int i = i0; i <= i1; ++i) m = std::max (m, d[static_cast<size_t> (i)]);
+        out[b] = juce::Decibels::gainToDecibels (m * 4.0f / kScope, -90.0f);   // ~0 dB for a full-scale sine
+    }
+}
+
+float Rack::outputLevel (int slot) const noexcept
+{
+    const auto si = static_cast<size_t> (juce::jlimit (0, kSlots - 1, slot));
+    return stale[si] > 6 ? 0.0f : scopes[si].peak.load (std::memory_order_relaxed);
 }
 
 // ── impulse responses ─────────────────────────────────────────────────────────────────────────

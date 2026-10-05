@@ -12,6 +12,16 @@
 namespace sg
 {
 
+// S&H glide: each new random value is reached along an S-curve over this share of the step, so
+// the shape is a rounded staircase rather than hard steps (user, 2026-10-05: the Super Gemini's
+// S&H sounds rounder than hard steps). 0 = hard steps, 1 = a smooth random line. Shared by LFO 2.
+inline constexpr float kShGlide = 0.35f;
+inline float shGlide (float from, float to, float p) noexcept
+{
+    const float t = p >= kShGlide ? 1.0f : p / kShGlide;
+    return from + (to - from) * t * t * (3.0f - 2.0f * t);
+}
+
 class Lfo1
 {
 public:
@@ -58,7 +68,7 @@ public:
             case Lfo1Wave::Triangle:   return p < 0.25f ? 4.0f * p : (p < 0.75f ? 2.0f - 4.0f * p : 4.0f * p - 4.0f);
             case Lfo1Wave::RevSaw:     return 1.0f - p;
             case Lfo1Wave::Square:     return p < 0.5f ? 1.0f : 0.0f;
-            case Lfo1Wave::SampleHold: return shNoise ? noiseValue : (ahead ? shNext : shCur);
+            case Lfo1Wave::SampleHold: return shNoise ? noiseValue : (ahead ? shGlide (shCur, shNext, p) : shGlide (shPrev, shCur, p));
             case Lfo1Wave::HF:
             case Lfo1Wave::HFTrk:      return 0.0f;
         }

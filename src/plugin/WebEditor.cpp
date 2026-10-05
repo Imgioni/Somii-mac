@@ -201,6 +201,29 @@ juce::var GeminusWebSession::listPatches (const juce::File& folder)
     return out;
 }
 
+// A bank's cover art is an image called cover.png / .jpg / .jpeg / .webp inside its folder (the
+// patch folder itself for loose patches). The page gets it as a data URL; none means the page
+// draws a generated cover.
+static const juce::StringArray coverExts { "png", "jpg", "jpeg", "webp" };
+
+static juce::String coverOf (const juce::File& dir)
+{
+    for (const auto& ext : coverExts)
+    {
+        const auto f = dir.getChildFile ("cover." + ext);
+        juce::MemoryBlock data;
+        if (f.existsAsFile() && f.getSize() < 6 * 1024 * 1024 && f.loadFileAsData (data))
+            return "data:image/" + (ext == "jpg" ? juce::String ("jpeg") : ext) + ";base64,"
+                 + juce::Base64::toBase64 (data.getData(), data.getSize());
+    }
+    return {};
+}
+
+static juce::File bankDir (const juce::File& folder, const juce::String& bank)
+{
+    return bank.trim().isEmpty() ? folder : folder.getChildFile (juce::File::createLegalFileName (bank.trim()));
+}
+
 bool GeminusWebSession::loadPatchFile (const juce::File& f)
 {
     juce::MemoryBlock data;
@@ -287,7 +310,14 @@ juce::WebBrowserComponent::Options GeminusWebSession::makeOptions()
     opts = opts.withNativeFunction ("uiTheme", [this] (const Args& a, Done done)
     {
         const auto requested = a.isEmpty() ? juce::String() : a[0].toString();
-        const auto valid = [] (const juce::String& t) { return t == "gemini" || t == "super6"; };
+        // ui/gen.mjs owns the list of themes; naming them here too meant a new theme silently fell
+        // back to GEMINI in the plugin while working in the browser. Accept any plain token and let
+        // the page map an unknown one back to its default.
+        const auto valid = [] (const juce::String& t)
+        {
+            if (t.isEmpty() || t.length() > 16) return false;
+            return t.containsOnly ("abcdefghijklmnopqrstuvwxyz0123456789-");
+        };
         if (valid (requested))
         {
             globalSettings->setValue ("uiTheme", requested);
@@ -492,6 +522,40 @@ juce::WebBrowserComponent::Options GeminusWebSession::makeOptions()
         const auto name = a.size() > 1 ? a[1].toString().trim() : juce::String();
         if (name.isEmpty()) { done (juce::var (false)); return; }
         done (juce::var (folder.getChildFile (juce::File::createLegalFileName (name)).createDirectory().wasOk()));
+    });
+    // patchCovers(folder): { bank: data URL } for every bank that has a cover image ("" = loose patches)
+    opts = opts.withNativeFunction ("patchCovers", [] (const Args& a, Done done)
+    {
+        const auto folder = a.size() > 0 && a[0].toString().isNotEmpty() ? juce::File (a[0].toString()) : defaultPatchFolder();
+        juce::DynamicObject::Ptr out (new juce::DynamicObject());
+        if (const auto c = coverOf (folder); c.isNotEmpty()) out->setProperty ("", c);
+        juce::Array<juce::File> dirs;
+        folder.findChildFiles (dirs, juce::File::findDirectories, false);
+        for (const auto& d : dirs)
+            if (const auto c = coverOf (d); c.isNotEmpty()) out->setProperty (d.getFileName(), c);
+        done (juce::var (out.get()));
+    });
+    // patchSetCover(folder, bank): choose an image; it is copied into the bank's folder as cover.<ext>
+    opts = opts.withNativeFunction ("patchSetCover", [this] (const Args& a, Done done)
+    {
+        const auto folder = a.size() > 0 && a[0].toString().isNotEmpty() ? juce::File (a[0].toString()) : defaultPatchFolder();
+        const auto dir = bankDir (folder, a.size() > 1 ? a[1].toString() : juce::String());
+        patchChooser = std::make_unique<juce::FileChooser> ("Choose a cover image", juce::File::getSpecialLocation (juce::File::userPicturesDirectory),
+                                                            "*.png;*.jpg;*.jpeg;*.webp");
+        patchChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+            [this, dir, done] (const juce::FileChooser& chooser)
+            {
+                const auto file = chooser.getResult();
+                juce::var result;
+                const auto ext = file.getFileExtension().trimCharactersAtStart (".").toLowerCase();
+                if (file.existsAsFile() && coverExts.contains (ext) && dir.createDirectory().wasOk())
+                {
+                    for (const auto& e : coverExts) dir.getChildFile ("cover." + e).deleteFile();
+                    if (file.copyFileTo (dir.getChildFile ("cover." + ext))) result = coverOf (dir);
+                }
+                patchChooser.reset();
+                done (result);
+            });
     });
     // the star on a row: kept in the global settings, so it follows the user, not the project
     opts = opts.withNativeFunction ("patchFavourite", [this] (const Args& a, Done done)
@@ -723,6 +787,17 @@ void GeminusWebSession::timerCallback()
     for (int s = 0; s < fx::Rack::kSlots; ++s)
         for (int i = 0; i < 8; ++i) fxVis.add (rack.getVis (s, i));
     o->setProperty ("fx", fxVis);
+    // the analyser (48 bands per slot, dB) and each slot's output peak, for the displays and the activity light
+    juce::Array<juce::var> spec, lvl;
+    for (int s = 0; s < fx::Rack::kSlots; ++s)
+    {
+        std::array<float, fx::Rack::kBands> bands {};
+        rack.spectrum (s, bands.data());
+        for (const float v : bands) spec.add (std::round (v * 10.0f) / 10.0f);
+        lvl.add (rack.outputLevel (s));
+    }
+    o->setProperty ("fxSpec", spec);
+    o->setProperty ("fxLevel", lvl);
     if (rack.getImpulseVersion() != sentIrVersion)
     {
         sentIrVersion = rack.getImpulseVersion();
@@ -753,29 +828,40 @@ void GeminusWebSession::timerCallback()
         if (const auto s = cs.now)
         {
             juce::DynamicObject::Ptr d (new juce::DynamicObject());
-            juce::Array<juce::var> wave;
-            const int points = 600;
-            for (int p = 0; p < points; ++p)
+            // the waveform at 1024 columns: [lo, hi] pairs, RMS, and [low, mid, high] energy shares (Sample::overview)
+            const auto ov = s->overview (1024);
+            const auto q = [] (float v) { return juce::var (std::round (v * 1000.0f) / 1000.0f); };
+            juce::Array<juce::var> wave, rms, bands;
+            for (size_t p = 0; p < ov.lo.size(); ++p)
             {
-                const int a = p * s->frames / points, e = juce::jmax (a + 1, (p + 1) * s->frames / points);
-                float lo = 0.0f, hi = 0.0f;
-                for (int i = a; i < e; ++i)
-                {
-                    const float v = 0.5f * (s->l[static_cast<size_t> (i)] + s->r[static_cast<size_t> (i)]);
-                    lo = juce::jmin (lo, v); hi = juce::jmax (hi, v);
-                }
-                wave.add (lo); wave.add (hi);
+                wave.add (q (ov.lo[p])); wave.add (q (ov.hi[p])); rms.add (q (ov.rms[p]));
+                bands.add (q (ov.low[p])); bands.add (q (ov.mid[p])); bands.add (q (ov.high[p]));
             }
-            float top = 1.0e-6f;                       // the outline fills the display whatever the gain
-            for (const auto& v : wave) top = juce::jmax (top, std::abs (static_cast<float> (v)));
-            for (auto& v : wave) v = static_cast<float> (v) / top;
+            d->setProperty ("rms", rms);
+            d->setProperty ("bands", bands);
             d->setProperty ("name", cs.name);
             d->setProperty ("seconds", s->frames / static_cast<double> (s->rate));
             d->setProperty ("rate", s->rate);
             d->setProperty ("wave", wave);
+            juce::Array<juce::var> onsets;   // SLICE: [position 0..1, strength] pairs
+            for (size_t j = 0; j < s->onsetPos.size(); ++j) { onsets.add (s->onsetPos[j] / s->frames); onsets.add (s->onsetStr[j]); }
+            d->setProperty ("onsets", onsets);
             info = juce::var (d.get());
         }
         o->setProperty (l == 0 ? "customUpper" : "customLower", info);
+    }
+
+    // CUSTOM: where each sounding voice is in its layer's sample, for the page's play heads
+    {
+        juce::Array<juce::var> heads;
+        for (int l = 0; l < 2; ++l)
+        {
+            juce::Array<juce::var> h;
+            for (int i = 0; i < sg::LayerEngine::kMaxUnits; ++i)
+                if (const float p = proc.getEngine().layer (l).getPlayhead (i); p >= 0.0f) h.add (std::round (p * 10000.0f) / 10000.0f);
+            heads.add (h);
+        }
+        o->setProperty ("customPlay", heads);
     }
 
     const auto name = patchName();

@@ -16,7 +16,7 @@ public:
         beginTest ("Note sounds, releases, then frees its voice");
         {
             LayerParams p;
-            p.e2Release = 0.5f;   // 100 ms
+            p.e2Release = 0.1f;   // 100 ms
             LayerEngine e; sgt::prepareEngine (e, p);
             auto s = sgt::renderNote (e, 60, 1.0f, 1.0, 0.4);
             expectGreaterThan (sgt::rms (s.l, 4800, 19200), 0.05f, "audible while held");
@@ -46,6 +46,30 @@ public:
             for (int i = 0; i < 20; ++i) e.noteOn (40 + i, 0.8f);
             e.process (l.data(), r.data(), 480);
             expectEquals (e.getActiveVoiceCount(), 20);
+        }
+
+        beginTest ("BINAURAL is never a mono signal [p.91]");
+        {
+            // p.91: a true monaural signal needs BINAURAL switched OFF. So with it ON the two
+            // voices of a super voice must differ even with SUPER off and nothing modulating.
+            auto width = [this] (sg::Tri super)
+            {
+                LayerParams p;
+                p.superMode = super;
+                p.e2Release = 0.0398f;   // 16 ms
+                LayerEngine e;
+                e.setAnalogTolerance (true);         // real voice cards, not the test's ideal ones
+                e.prepare (sgt::kFs, 512, 2);
+                e.setParams (p);
+                auto s2 = sgt::renderNote (e, 60, 1.0f, 1.5);
+                double num = 0.0, dl = 0.0, dr = 0.0;
+                for (size_t i = 9600; i < s2.l.size(); ++i) { num += s2.l[i] * s2.r[i]; dl += s2.l[i] * s2.l[i]; dr += s2.r[i] * s2.r[i]; }
+                return num / std::sqrt (std::max (1.0e-12, dl * dr));   // 1 = the two sides are the same signal
+            };
+            const double off = width (sg::Tri::Off), on = width (sg::Tri::On);
+            logMessage ("  L/R waveform correlation - SUPER off: " + juce::String (off, 4) + "  SUPER on: " + juce::String (on, 4));
+            expectLessThan (off, 0.9, "SUPER off: the pair is not one mono signal");
+            expectLessThan (on, 0.9, "SUPER on: the pair is not one mono signal");
         }
 
         beginTest ("Non-binaural SPREAD: successive notes alternate left / right [p.58]");

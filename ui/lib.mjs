@@ -10,9 +10,9 @@ export const ONBLACK_INK2 = 'var(--oink2)';
 
 export const A = {
   panel: 'panel.png', panelDark: 'panel-dark.png', shading: 'shading.jpg', glass: 'glass.png',
-  knob: { cream: 'new-knob-cream.png', orange: 'new-knob-orange.png', dark: 'new-knob-dark.png' },
+  knob: { cream: 'silicone-knob-cream.svg', orange: 'silicone-knob-orange.svg', dark: 'silicone-knob-dark.svg' },
   slot: 'new-rail.png', ticks: 'ticks.png',
-  cap: { grey: 'new-fader-grey.png', orange: 'new-fader-orange.png', dark: 'new-fader-dark.png' },
+  cap: { grey: 'silicone-fader-grey.svg', orange: 'silicone-fader-orange.svg', dark: 'silicone-fader-dark.svg' },
   sw: ['new-switch-bot.png', 'new-switch-mid.png', 'new-switch-top.png'],
   rocker: ['new-octave-left.png', 'new-octave-center.png', 'new-octave-right.png'],
   btnOff: 'new-button-light.png', btnOn: 'new-button-light-down.png', btnDark: 'new-button-dark.png', btnDarkOn: 'new-button-dark-down.png',
@@ -107,7 +107,7 @@ export function sect(x, y, w, title, o) {
   o = o || {};
   const size = o.size || 11;
   // lifted 0.09em so the rule runs through the middle of the capitals, not the line box
-  const rule = '<span style="flex:1;min-width:6px;height:1.5px;position:relative;top:-0.09em;background:' + (o.ruleColor || ORANGE) + ';opacity:.85"></span>';
+  const rule = '<span style="flex:1;min-width:6px;height:' + (STYLE.flat ? '1px' : '1.5px') + ';position:relative;top:-0.09em;background:' + (o.ruleColor || (STYLE.flat ? 'var(--rule)' : ORANGE)) + ';opacity:.85"></span>';
   return '<div class="section-heading" style="position:absolute;left:' + r1(x) + 'px;top:' + r1(y)
     + 'px;width:' + r1(w) + 'px;height:' + r1(size * TEXT * 1.05) + 'px;display:flex;align-items:center;gap:8px;pointer-events:none;'
     + 'font-family:' + FONT + ';font-stretch:75%;font-size:' + r1(size * TEXT) + 'px;font-weight:700;letter-spacing:.1em;color:' + (o.color || INK) + '">'
@@ -115,8 +115,8 @@ export function sect(x, y, w, title, o) {
 }
 
 // ---- knob ------------------------------------------------------------------
-// val 0..1 maps to -150deg..+150deg. Rotate the supplied top face inside an
-// elliptical projection, leaving the photographed sidewall and socket stationary.
+// val 0..1 maps to -150deg..+150deg. Rotate only the index inside an
+// elliptical projection, leaving all photographed lighting stationary.
 // Pop-over pages use the dark flat look (memory: geminus-popover-dark-flat-look): while
 // STYLE.flat is set, knobs and keys are drawn flat (generated caps from tools/make-fx-controls.mjs)
 // instead of the photographed hardware parts the main panel uses.
@@ -136,7 +136,7 @@ function flatKnob(o) {
   out += hit({ id: o.id, domId: o.domId, layered: o.layered, shiftId: o.shiftId, type: o.hitType || 'slider', ctl: 'knob',
                x: x - 2, y: y - 2, w: d + 4, h: d + 4, title: o.title || o.label, cursor: o.hitType === 'combo' ? 'pointer' : 'ns-resize',
                data: Object.assign({ ind: dom + '__v', arc: dom + '__a' }, o.hitData || {}) });
-  if (o.label) out += txt(x - 40, o.ly != null ? o.ly : y + d + 8, d + 80, o.label, { size: o.lsize || 8.5, color: o.labelColor || INK });
+  if (o.label) { const lw = o.lw || d + 80; out += txt(x + d / 2 - lw / 2, o.ly != null ? o.ly : y + d + 8, lw, o.label, { size: o.lsize || 8.5, color: o.labelColor || INK }); }
   return out;
 }
 export function knob(o) {
@@ -176,24 +176,24 @@ export function knob(o) {
         { size: 4.8, ls: 0, color: o.lc2 || INK2, weight: 600 });
     });
   }
-  const small = d <= 44 && v !== 'dark';
-  const sprite = small ? 'new-small-' + v + '.png' : A.knob[v];
+  const sprite = A.knob[v];
   out += '<img src="' + sprite + '" alt=""' + visId(o) + ' style="position:absolute;left:' + r1(x) + 'px;top:' + r1(y) + 'px;'
     + 'width:' + r1(d) + 'px;height:' + r1(d) + 'px;">';
-  const fw = d * (small ? 288 / 390 : 410 / 510), fh = d * (small ? 260 / 466 : 374 / 565);
-  const fx = d * (small ? 50 / 390 : (v === 'cream' ? 46 : v === 'orange' ? 45 : 44) / 510);
-  const fy = d * (small ? 10 / 466 : 10 / 565);
+  // Project the rotating index onto the top face. The photo (including its
+  // highlights, sidewall and shadow) never rotates or changes with the value.
+  const fw = d * .86, fh = d * .80, fx = d * .055, fy = d * .035;
   out += '<div style="position:absolute;left:' + r1(x + fx) + 'px;top:' + r1(y + fy) + 'px;width:' + r1(fw) + 'px;height:' + r1(fw)
     + 'px;transform-origin:0 0;transform:scaleY(' + (fh / fw) + ');pointer-events:none">'
     + '<div style="width:100%;height:100%;overflow:hidden;border-radius:50%">'
-    + '<img src="' + sprite.replace('.png', '-face.png') + '" alt=""'
+    + '<svg viewBox="0 0 100 100" aria-hidden="true"'
     + (o.id ? ' id="' + esc(o.domId || o.id) + '__i"' : '')
-    + ' style="display:block;width:100%;height:100%;transform:rotate(' + r1(deg) + 'deg)"></div></div>';
+    + ' style="display:block;width:100%;height:100%;transform:rotate(' + r1(deg) + 'deg)">'
+    + '<path d="M50 7V29" fill="none" stroke="' + (v === 'cream' ? '#383937' : '#f5f2e8') + '" stroke-width="4.2" stroke-linecap="round"/></svg></div></div>';
   out += hit({ id: o.id, domId: o.domId, layered: o.layered, shiftId: o.shiftId, type: o.hitType || 'slider', ctl: 'knob',
                x: x - 2, y: y - 2, w: d + 4, h: d + 4, title: o.title || o.label,
                cursor: o.hitType === 'combo' ? 'pointer' : 'ns-resize',
                data: Object.assign({ ind: (o.domId || o.id) + '__i' }, o.hitData || {}) });
-  if (o.label) out += txt(x - 40, o.ly != null ? o.ly : y + d + pad + 2, d + 80, o.label, { size: o.lsize || 8.5, color: o.labelColor || INK });
+  if (o.label) { const lw = o.lw || d + 80; out += txt(x + d / 2 - lw / 2, o.ly != null ? o.ly : y + d + pad + 2, lw, o.label, { size: o.lsize || 8.5, color: o.labelColor || INK }); }
   if (o.sub) out += txtInv(x + d / 2 - wText(o.sub, 7, 0.06) / 2, o.sy != null ? o.sy : y + d + pad + 2 + lineH(8.5) + 2, wText(o.sub, 7, 0.06), o.sub, { size: 7 });
   return out;
 }
@@ -348,6 +348,32 @@ export function sw3(o) {
   if (o.label) out += txt(x - 30, o.ly != null ? o.ly : y + h + 8, w + 60, o.label, { size: o.lsize || 7.6, color: o.labelColor || INK });
   return out;
 }
+// Two-position toggle, horizontal: the photographed vertical switch turned a quarter turn, so the
+// actuator points left (first option) or right (second). Only the two end poses are used, which is
+// what a real two-position toggle does. x / y are its centre.
+export function sw2h(o) {
+  const h = o.h || 30, w = r1(h * TOGGLE_ASPECT);        // the sprite's own upright box
+  const dom = o.domId || (o.layered ? 'upper.' + o.id : o.id);
+  const sprites = A.sw, pos = o.pos === 1 ? 0 : 2;       // 0 = bottom (right), 2 = top (left)
+  const cx = o.x, cy = o.y;
+  let out = '<img src="' + sprites[pos] + '" alt=""' + visId(o) + ' style="position:absolute;'
+    + 'left:' + r1(cx - w / 2) + 'px;top:' + r1(cy - h / 2) + 'px;width:' + w + 'px;height:' + r1(h) + 'px;'
+    + 'transform:rotate(-90deg);">';
+  // paint() picks the sprite by detent, so the options are keyed to the sprite index, not the value
+  out += hit({ id: o.id, domId: o.domId, layered: o.layered, type: 'combo', ctl: 'sw3', cursor: 'pointer',
+               x: cx - h / 2 - 4, y: cy - w / 2 - 6, w: h + 8, h: w + 12, title: o.title || o.label,
+               data: { steps: 2, src0: sprites[0], src2: sprites[2], map: '2,0',
+                       optbase: dom + '__opt', optink: o.lc || 'var(--opt)', optsel: 'var(--sel)' } });
+  const ss = o.ssize || 6.6, lh = lineH(ss), ty = cy - lh / 2;
+  if (o.opts) {
+    out += txt(cx - h / 2 - 46, ty, 40, o.opts[0], { id: dom + '__opt2', size: ss, align: 'right', color: o.lc || INK2, weight: 600 });
+    out += txt(cx + h / 2 + 6, ty, 40, o.opts[1], { id: dom + '__opt1', size: ss, align: 'left', color: o.lc || INK2, weight: 600, style: 'display:none' });
+    out += txt(cx + h / 2 + 6, ty, 40, o.opts[1], { id: dom + '__opt0', size: ss, align: 'left', color: o.lc || INK2, weight: 600 });
+  }
+  if (o.label) out += txt(cx - 60, o.ly != null ? o.ly : cy + w / 2 + 8, 120, o.label, { size: o.lsize || 7.2, color: o.labelColor || INK });
+  return out;
+}
+
 export const wSw3 = (h, lw) => h * TOGGLE_ASPECT + 4 + (lw == null ? 44 : lw);
 
 // ---- button + LED ----------------------------------------------------------
@@ -372,7 +398,7 @@ export function button(o) {
   const off = o.flat ? 'flat-btn-off.svg' : o.dark ? A.btnDark : A.btnOff, on = o.flat ? 'flat-btn-on.svg' : o.dark ? A.btnDarkOn : A.btnOn;
   out += '<img src="' + (o.on ? on : off) + '" alt=""' + visId(o) + ' style="position:absolute;'
     + 'left:' + r1(x) + 'px;top:' + r1(y) + 'px;width:' + r1(w) + 'px;height:' + h + 'px;object-fit:contain;">';
-  const lw = Math.max(w + 40, wText(o.label, o.lsize || 7.6));
+  const lw = o.lw || Math.max(w + 40, wText(o.label, o.lsize || 7.6));
   if (o.label) out += txt(x + w / 2 - lw / 2, o.ly != null ? o.ly : y + h + 7, lw, o.label, { size: o.lsize || 7.6, color: o.labelColor || (o.onDark ? ONBLACK_INK : INK) });
   if (o.sub) out += txtInv(x + w / 2 - wText(o.sub, 6.6, 0.06) / 2, o.sy != null ? o.sy : (o.ly != null ? o.ly : y + h + 7) + lineH(7.6) + 2, wText(o.sub, 6.6, 0.06), o.sub, { size: 6.6 });
   if (o.action) {
@@ -438,14 +464,14 @@ export function popover(id, title, x, y, w, h, content, o) {
     + 'width:' + r1(w) + 'px;height:' + r1(h) + 'px;'
     + 'background:var(--base);border-radius:6px;overflow:hidden;'
     + 'box-shadow:0 14px 50px rgba(0,0,0,.6),inset 0 0 0 1px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.7);">';
-  out += '<div class="tex" style="position:absolute;inset:0;background:url(' + A.panel + ') repeat;pointer-events:none;"></div>';
-  out += txt(24, 18, 600, title, { size: 13, align: 'left', ls: 0.12 });
-  if (o.subtitle) out += txt(24 + wText(title, 13, 0.12) + 16, 24, 900, o.subtitle, { size: 8, align: 'left', color: INK2, weight: 600 });
-  out += '<div data-close="' + esc(id) + '" title="Close" style="position:absolute;right:16px;top:14px;'
-    + 'width:34px;height:30px;cursor:pointer;z-index:6;">'
-    + '<svg width="34" height="30" viewBox="0 0 34 30"><path d="M11 7 L23 23 M23 7 L11 23" '
-    + 'stroke="' + INK + '" stroke-width="2.4" stroke-linecap="round" fill="none"/></svg></div>';
-  out += hrule(20, 50, w - 40, ORANGE, 2);
+  // flat chrome: one solid header band on a hairline, no texture, no printed orange rule
+  out += '<div class="pop-head" style="position:absolute;left:0;top:0;width:100%;height:52px;pointer-events:none"></div>';
+  out += txt(24, 15, 600, title, { size: 12, align: 'left', ls: 0.14 });
+  if (o.subtitle) out += txt(24 + wText(title, 12, 0.14) + 18, 21, 1100, o.subtitle, { size: 7.4, align: 'left', color: INK2, weight: 600, ls: 0.1 });
+  out += '<div data-close="' + esc(id) + '" class="pop-close" title="Close (Esc)" style="position:absolute;right:10px;top:8px;'
+    + 'width:36px;height:36px;cursor:pointer;z-index:6;">'
+    + '<svg width="36" height="36" viewBox="0 0 36 36"><path d="M12.5 12.5 L23.5 23.5 M23.5 12.5 L12.5 23.5" '
+    + 'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/></svg></div>';
   out += content;
   out += '</div></div>';
   return out;

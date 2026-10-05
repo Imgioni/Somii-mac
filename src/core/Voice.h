@@ -29,7 +29,7 @@ struct LayerMods
     float ribbonPos = 0.0f;       // ribbon position 0 … 1 (matrix source)
     float ribbonSemis = 0.0f;     // relative ribbon bend in pitch mode [p.77]
     bool ribbonToPitch = true;    // off once RIBN is used in the matrix [p.77]
-    double lfo2Phase = 0.0;       // layer-wide LFO 2 phase (cycles) at the start of the block
+    double lfo2Phase = 0.0;       // layer-wide LFO 2 phase (cycles), panel LED only
     float lfo2Inc = 0.0f;         // layer-wide LFO 2 cycles per host sample
 };
 
@@ -50,14 +50,17 @@ public:
     void setSampleChannel (int ch) noexcept { sampleCh = ch; }   // CUSTOM: 0 left, 1 right, 2 mono sum
 
     // declick: if the voice is still sounding, fade it out over 3 ms before the new note starts
-    // (voice stealing). glide: portamento from this voice's previous pitch [p.73].
-    void start (int note, float velocity, float unisonSemis, bool declick, bool glide);
+    // (voice stealing). glideFrom: the note portamento slides from [p.73] - kGlideOwn = this voice's
+    // own pitch (mono), kNoGlide = none, else a note number (poly: the layer's last played note).
+    static constexpr float kNoGlide = -1.0f, kGlideOwn = -2.0f;
+    void start (int note, float velocity, float unisonSemis, bool declick, float glideFrom);
     // LEGATO: new pitch without retriggering the envelopes [p.90].
     void changeNote (int note, float unisonSemis) noexcept;
     void release() noexcept;
     void kill() noexcept;
     void setPolyAftertouch (float v) noexcept { polyAT = clampf (v, 0.0f, 1.0f); }
-    void resyncLfo2() noexcept { lfo2Offset = 0.0; }
+    // the performance trigger toggle pulls every voice's LFO 2 back into phase [p.72]
+    void resyncLfo2() noexcept { lfo2Phase = 0.0; }
 
     bool isActive() const noexcept   { return active; }
     bool isGateOn() const noexcept   { return gate || stealing; }   // a stealing voice already belongs to its new note
@@ -69,6 +72,7 @@ public:
     float getEnv1Level() const noexcept { return env1.getLevel(); }
     float getCutoffOctaves() const noexcept { return cutOctBase; }   // control-rate cutoff, octaves above 20 Hz
     float getPitch() const noexcept  { return pitchNow; }
+    float samplePlayhead() const noexcept { return active ? dds1.samplePlayhead() : -1.0f; }
 
     // Once per control block (≤ 32 host samples).
     void setupBlock (const LayerControl& c, float blockSeconds) noexcept;
@@ -92,7 +96,7 @@ private:
     float control (const LayerControl& c, const LayerMods& m, int sampleInBlock, float lfoValue, float lfoUni) noexcept;
     void render (float* out, int n, int os, const float* gains) noexcept;
     float renderSample (float gainBase) noexcept;   // one oversampled sample of the audio path
-    void begin (int note, float velocity, float unisonSemis, bool glide, bool resetEnvelopes);
+    void begin (int note, float velocity, float unisonSemis, float glideFrom, bool resetEnvelopes);
     void fullUpdate (const LayerControl& c, const LayerMods& m, int sampleInBlock,
                      float e1s, float e1u, float e2, float lv, float lu, float lg, bool hf) noexcept;
     float eff (const LayerControl& c, MDest d, float base) const noexcept
@@ -111,6 +115,8 @@ private:
     SubOsc sub;
     OnePoleHpf hpf;
     SsiLadder lpf;
+    CurtisFilter lpf3w;          // VCF STYLE = 3W
+    StateVariable svf;          // the 3rd Wave's state-variable filter, ahead of the low-pass
     Envelope env1, env2, envFixed;
     Rng rng;
 
@@ -131,7 +137,7 @@ private:
     float ribbonHeld = 0.0f;       // ribbon bend frozen at note release [p.77]
 
     // voice stealing: fade out, then start the pending note
-    struct Pending { int note = 60; float velocity = 1.0f; float unison = 0.0f; bool glide = false; } pending;
+    struct Pending { int note = 60; float velocity = 1.0f; float unison = 0.0f; float glideFrom = kNoGlide; } pending;
     bool stealing = false;
     float stealGain = 1.0f, stealStep = 0.0f;
 
@@ -145,13 +151,16 @@ private:
     // ── values computed in the control updates, consumed per sample / in render() ──
     float vcaGainEff = 1.0f, vcaLfoDepthEff = 0.0f, lfo1DelayEff = 0.0f;
     float lfo2TremDepth = 0.0f, lfo2Uni = 0.0f, lfo2Out = 0.0f;
-    double lfo2Offset = 0.0;
+    double lfo2Phase = 0.0;        // this voice's own LFO 2 phase, free-running
+    float tolLfo2 = 1.0f;          // its rate tolerance, like a real analog LFO
+    uint32_t lfo2Seed = 0;
     float cutOctBase = 9.0f;
     bool cutAudioRate = false;
     float dds2CutOct = 0.0f, hfCutOct = 0.0f;
     float amDepth = 0.0f, hfTremDepth = 0.0f;
     float xmodOct = 0.0f;
     bool sync = false, ring = false, dds2Audio = true, subOn = false, subSquare = true;
+    bool thirdWave = false, svfOn = false;
     float mix = 0.0f;
     float hfInc = 0.0f, hfPhase = 0.0f, hfOffset = 0.0f;
     bool hfOn = false;

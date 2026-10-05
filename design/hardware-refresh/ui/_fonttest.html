@@ -1,0 +1,12 @@
+<!doctype html><meta charset="utf-8"><body style="margin:20px;background:#E7E2DA">
+<div id="out"></div>
+<script>
+const tests=[['Bahnschrift',75,700],['Bahnschrift',87.5,700],['Bahnschrift',75,600],['Bahnschrift',100,700],['Arial Narrow',100,700]];
+const s='PW / DETUNE ARPEGGIATOR SEQUENCER 0123456789 MASTER VOLUME';
+let html='';
+for(const [f,st,w] of tests){
+  const sp=document.createElement('span'); sp.style.cssText=`font-family:'${f}';font-stretch:${st}%;font-weight:${w};font-size:100px;white-space:nowrap;letter-spacing:0`; sp.textContent=s; document.body.appendChild(sp);
+  html+=`${f} ${st}% ${w}: ${(sp.getBoundingClientRect().width/s.length/100).toFixed(3)} em/char<br>`; sp.remove();
+}
+document.getElementById('out').innerHTML=html;
+</script>

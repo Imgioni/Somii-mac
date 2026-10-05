@@ -63,7 +63,7 @@ public:
         std::shared_ptr<const sg::Sample> now, prev;   // prev outlives the audio thread's last use of it
         int version = 0;
     };
-    static constexpr double kCustomMaxSeconds = 30.0;
+    static constexpr double kCustomMaxSeconds = 90.0;   // long enough to slice a section of a song
     bool loadCustomSample (int layer, const void* data, size_t size, const juce::String& name);
     const CustomSample& getCustomSample (int layer) const noexcept { return customSamples[static_cast<size_t> (layer & 1)]; }
 

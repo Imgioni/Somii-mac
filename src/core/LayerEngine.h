@@ -81,6 +81,9 @@ public:
     unsigned getLoopCycles() const noexcept;
     // The most recently started active voice (editor read-outs), or null.
     const Voice* getNewestVoice() const noexcept;
+    // CUSTOM sample play heads of the sounding voices (0..1, -1 = none): written by the audio thread
+    // after each block, read by the editor for the page's moving play heads
+    float getPlayhead (int i) const noexcept { return playheads[static_cast<size_t> (i)].load (std::memory_order_relaxed); }
 
 private:
     void beginBlock (int len);
@@ -104,7 +107,7 @@ private:
     bool unitActive (int u) const noexcept;
     bool unitGateOn (int u) const noexcept;
     float unitLevel (int u) const noexcept;
-    void startUnit (int u, int note, float velocity, float unisonSemis, bool declick, bool glide);
+    void startUnit (int u, int note, float velocity, float unisonSemis, bool declick, float glideFrom);
     void releaseUnit (int u) noexcept;
     float unisonOffset (int index, int count) const noexcept;
 
@@ -135,6 +138,10 @@ private:
     std::vector<int> keyStack;            // held keys in press order (mono note priority)
     std::array<int, kMaxUnits> unitNote {};
     int monoNote = -1;
+    // PORTAMENTO's source in POLY: the last key played; keys within 30 ms of each other are one chord,
+    // and every note of a chord glides from the key before it [p.73]
+    uint64_t clockSamples = 0, lastKeyAt = 0;
+    int lastKey = -1, glideFrom = -1;
     bool sustain = false, hold = false;
 
     LayerParams target, smoothed;
@@ -144,6 +151,7 @@ private:
     float panL = 1.0f, panR = 1.0f;
 
     std::array<SuperVoice, kSuperVoices> voices;
+    std::array<std::atomic<float>, kMaxUnits> playheads {};
     Decimator decL, decR;
     std::vector<float> osL, osR;
 

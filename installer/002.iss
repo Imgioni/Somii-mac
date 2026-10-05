@@ -4,7 +4,7 @@
 
 #define AppName        "002"
 #define AppFullName    "002 by SPKR"
-#define AppVersion     "0.4.4"
+#define AppVersion     "0.4.6"
 #define Publisher      "SPKR"
 #define AppURL         "https://spkr.shop"
 #define VstName        "002 by SPKR.vst3"

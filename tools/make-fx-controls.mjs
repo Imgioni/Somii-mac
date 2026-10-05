@@ -19,27 +19,17 @@ const around = (n, r1, r2, colour, width) => Array.from({ length: n }, (_, i) =>
   return `<line x1="${(100 + s * r1).toFixed(2)}" y1="${(100 - c * r1).toFixed(2)}" x2="${(100 + s * r2).toFixed(2)}" y2="${(100 - c * r2).toFixed(2)}" stroke="${colour}" stroke-width="${width}"/>`;
 }).join('');
 
-// a disc lit from the top left: a radial gradient between two tones, and a dark pointer
-const glowDisc = (hi, lo) => '<defs><radialGradient id="g" cx="38%" cy="32%" r="75%"><stop offset="0" stop-color="' + hi + '"/><stop offset="1" stop-color="' + lo + '"/></radialGradient></defs>'
-  + circle(80, 'url(#g)') + pointer(30, 66, '#12143A', 9);
+// The caps are the 002's own knobs drawn flat (no gradients): the cream UPPER cap, the orange LOWER
+// cap and the black global cap, plus a slate one for the SUPER SIX faces. A skirt of ticks marks the
+// grip; the pointer is the printed line on the real caps.
+const cap = (rim, face, line) => circle(84, rim) + around(48, 76, 84, face, 2.5) + circle(72, face) + circle(58, 'none', 'stroke="' + rim + '" stroke-opacity=".35" stroke-width="2"') + pointer(28, 64, line, 8);
 const KNOBS = {
   // the house cap: flat graphite disc, a lighter face, a white line
   house: circle(80, '#15171B') + circle(76, '#30343C') + circle(66, '#383C45') + pointer(32, 68, '#EEF0F6', 8),
-  // Rev-style: a plain white disc, navy line
-  ocean: circle(78, '#F4F6FF') + circle(78, 'none', 'stroke="#C9D3EE" stroke-width="3"') + pointer(30, 64, '#142C5C', 8),
-  // Ambient-style: concentric hairline rings round a black centre, a white dot
-  rings: [94, 86, 78, 70, 62].map((r) => circle(r, 'none', 'stroke="#1A1A1A" stroke-width="2"')).join('') + circle(52, '#141414') + '<circle cx="100" cy="66" r="7" fill="#FFFFFF"/>',
-  // console-module: knurled black knob, white line
-  tuba: circle(88, '#0B0B0B') + around(56, 80, 88, '#2C2C2C', 3.5) + circle(70, '#171717') + circle(70, 'none', 'stroke="#262626" stroke-width="3"') + pointer(20, 62, '#F4F4F2', 7),
-  // FF-style: slate disc, pale line
-  fab: circle(78, '#1B2027') + circle(74, '#39414C') + circle(64, '#303741') + pointer(34, 66, '#E6EBF2', 7),
-  // Saturn-style: a white cap with a soft grey edge, dark line
-  white: circle(80, '#8E8A89') + circle(76, '#F4F1EE') + circle(64, 'none', 'stroke="#E2DEDA" stroke-width="3"') + pointer(30, 62, '#2B2525', 8),
-  // VintageVerb-style: solid glowing discs (violet, azure, cyan), a dark line
-  violet: glowDisc('#B07CFF', '#7A42E6'), azure: glowDisc('#8C95FF', '#5560E8'), cyan: glowDisc('#5FD6FF', '#1E9FE6'),
-  // its big DECAY: concentric rings from violet to cyan round a deep centre, a dark notch
-  vdecay: [['#8E5CFF', 94], ['#7C6CFF', 80], ['#6A80FF', 66], ['#4F9BFF', 52], ['#3CC0FF', 38]].map(([c, r]) => circle(r, 'none', 'stroke="' + c + '" stroke-width="8"')).join('')
-    + circle(26, '#24186E') + '<rect x="95" y="2" width="10" height="44" rx="3" fill="#0B0E2A"/>'
+  bone: cap('#B9B2A6', '#E7E2DA', '#23252A'),
+  coal: cap('#0E0E0F', '#2A2A2C', '#E7E2DA'),
+  ember: cap('#B8401A', '#F65A27', '#23252A'),
+  slate: cap('#122830', '#2F5A6B', '#FFE8D1')
 };
 for (const style of KNOB_STYLES) {
   if (!KNOBS[style]) throw new Error('no drawing for knob style ' + style);

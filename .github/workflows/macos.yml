@@ -19,6 +19,9 @@ jobs:
           git clone --depth 1 --branch 8.0.15 https://github.com/juce-framework/JUCE third_party/JUCE
           git clone --depth 1 --recurse-submodules https://github.com/free-audio/clap-juce-extensions third_party/clap-juce-extensions
 
+      - name: Web UI syntax
+        run: node tests/UiSyntaxTests.mjs
+
       - name: Install Ninja
         run: brew install ninja
 

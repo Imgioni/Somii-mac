@@ -41,6 +41,13 @@ struct LayerControl
     EnvSource envSource = EnvSource::Env1;
     float keytrackK = 0.0f;        // 0, 0.5, 1
     float vcfEnvOct = 0.0f, vcfLfoOct = 0.0f, vcfDds2Oct = 0.0f;
+    // 3rd Wave style
+    VcfStyle vcfStyle = VcfStyle::Sg;
+    float vcfSat = 0.0f, vcfVelOct = 0.0f;
+    bool twComp = true;
+    float svfEnvOct = 0.0f, svfVelOct = 0.0f, svfKeyK = 0.0f;
+    bool svfOn = false, svfBand = false;
+    float svfHz = 20000.0f, svfRes = 0.0f, svfModeMix = 0.0f;
 
     // VCA
     float vcaGain = 1.0f;
@@ -58,6 +65,7 @@ struct LayerControl
     // LFO 1
     Lfo1Wave lfo1Wave = Lfo1Wave::Triangle;
     Lfo1Mode lfo1Mode = Lfo1Mode::FreeNorm;
+    bool lfo1PerVoice = false;          // MODE 2: each voice card has its own LFO 1
     float lfo1Hz = 5.0f;           // LF rate, or HF base rate in HF / HF TRK
     float lfo1DelayS = 0.0f;
     float lfo1LrPhase = 0.0f;      // cycles, 0..1
@@ -138,18 +146,31 @@ private:
         mix = p.mix;
 
         drive = p.drive;
+        vcfStyle = p.vcfStyle;
+        const bool tw = vcfStyle == VcfStyle::ThirdWave;
+        twComp = p.twComp;
+        svfEnvOct = 10.0f * (2.0f * p.svfEnv - 1.0f);
+        svfVelOct = 4.0f * p.svfVelocity;
+        svfKeyK = 2.0f * p.svfKey;
+        vcfSat = p.vcfSat;
+        vcfVelOct = tw ? 4.0f * p.vcfVelocity : 0.0f;                       // VELOCITY: up to 4 octaves of cutoff
+        svfOn = p.svfOn;
+        svfBand = p.svfBand;
+        svfRes = p.svfRes;
+        svfModeMix = p.svfModeMix;
+        svfHz = 20.0f * fastExp2 (11.5f * clampf (p.svfCutoff, 0.0f, 1.0f));
         hpfHz = taper::hpfHz (p.hpf);
-        keytrackK = triK (p.vcfKeytrack);
+        keytrackK = tw ? 2.0f * p.twKey : triK (p.vcfKeytrack);
         // Fully open = 20 Hz · 2^11.5 ≈ 58 kHz (clamped to 0.45 · oversampled rate) so a wide-open
         // 4-pole ladder doesn't dull the top end. With keytrack on, the fader alone can't open the
         // filter fully; the rest of the range is reached by envelope / pedal modulation [p.43, DD-13].
-        lpfOctaves = 11.5f - 2.0f * keytrackK;
-        lpfFader = p.lpf;
-        res = p.res;
-        envSource = p.envSource;
-        vcfEnvOct = taper::vcfEnvOctaves (p.vcfEnvAmt);
-        vcfLfoOct = taper::vcfLfoOctaves (p.vcfLfo1Amt);
-        vcfDds2Oct = taper::vcfDds2Octaves (p.vcfDds2Amt);
+        lpfOctaves = tw ? 11.5f : 11.5f - 2.0f * keytrackK;
+        lpfFader = tw ? p.twCutoff : p.lpf;
+        res = tw ? p.twRes : p.res;
+        envSource = tw ? EnvSource::Env1 : p.envSource;
+        vcfEnvOct = tw ? 10.0f * (2.0f * p.twEnv - 1.0f) : taper::vcfEnvOctaves (p.vcfEnvAmt);
+        vcfLfoOct = tw ? 0.0f : taper::vcfLfoOctaves (p.vcfLfo1Amt);
+        vcfDds2Oct = tw ? 0.0f : taper::vcfDds2Octaves (p.vcfDds2Amt);
 
         vcaGain = taper::levelGain (p.vcaLevel);
         vcaLfoDepth = p.vcaLfo1Amt;
@@ -174,6 +195,7 @@ private:
 
         lfo1Wave = p.lfo1Wave;
         lfo1Mode = p.lfo1Mode;
+        lfo1PerVoice = p.lfo1PhaseMode == Lfo1Phase::PerVoice;
         const bool hf = p.lfo1Wave == Lfo1Wave::HF || p.lfo1Wave == Lfo1Wave::HFTrk;
         sync = p.arpSync;
         lfo1Hz = hf ? taper::lfoHighHz (p.lfo1Rate) : lfo1LowHzFor (p.lfo1Rate);
