@@ -6,12 +6,13 @@
 #   SPKR_SIGN_ID        Developer ID Application: Name (TEAMID)   - signs the plug-ins and app
 #   SPKR_INSTALLER_ID   Developer ID Installer: Name (TEAMID)     - signs the .pkg
 #   SPKR_NOTARY_PROFILE name of a stored notarytool keychain profile - notarises and staples
-# Without them the package still installs, but macOS warns that it is from an unidentified
-# developer (right-click > Open, or System Settings > Privacy & Security > Open Anyway).
+# Without them the bundles are ad-hoc signed for development; downloaded packages
+# may be blocked by Gatekeeper. Distribution builds should be signed and notarised.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-[ "${1:-}" = "--build" ] && scripts/build-mac.sh
+if [ "${1:-}" = "--build" ]; then bash scripts/build-mac.sh; fi
+bash scripts/verify-mac.sh
 
 VERSION=$(sed -n 's/^#define AppVersion  *"\([^"]*\)".*/\1/p' installer/Somii.iss)
 [ -n "$VERSION" ] || { echo "could not read the version from installer/Somii.iss"; exit 1; }
@@ -32,13 +33,16 @@ rm -rf "$STAGE"; mkdir -p "$STAGE/pkgs" "$DIST"
 # Apple wants each destination in its own component package; productbuild joins them.
 component () {   # component <built bundle> <install folder> <id suffix>
     local src="$1" dest="$2" id="$3"
-    [ -d "$src" ] || { echo "  (skipping $id: not built)"; return; }
+    [ -d "$src" ] || { echo "Missing required bundle: $src"; exit 1; }
     local root="$STAGE/root-$id"
     mkdir -p "$root"
     cp -R "$src" "$root/"
     if [ -n "${SPKR_SIGN_ID:-}" ]; then
         codesign --force --deep --options runtime --timestamp --sign "$SPKR_SIGN_ID" "$root/$(basename "$src")"
+    else
+        codesign --force --deep --sign - "$root/$(basename "$src")"
     fi
+    codesign --verify --deep --strict "$root/$(basename "$src")"
     pkgbuild --root "$root" --install-location "$dest" --identifier "$IDENT.$id" --version "$VERSION" \
              "$STAGE/pkgs/$id.pkg" >/dev/null
     echo "  $id"
@@ -69,7 +73,8 @@ $(for p in "$STAGE"/pkgs/*.pkg; do id=$(basename "$p" .pkg)
 done)
 </installer-gui-script>
 XML
-cp installer/LICENSE.txt installer/README.txt "$STAGE/"
+cp installer/LICENSE.txt "$STAGE/"
+cp installer/mac/README.txt "$STAGE/README.txt"
 
 PKG="$DIST/Somii-$VERSION-macOS-Setup.pkg"
 echo "== installer =="
@@ -90,8 +95,9 @@ fi
 # the same payload as a zip, for people who would rather drag the bundles into place themselves
 ZIPDIR="$STAGE/zip/Somii"
 mkdir -p "$ZIPDIR"
-for b in "$VST3" "$AU" "$CLAP" "$APP"; do [ -d "$b" ] && cp -R "$b" "$ZIPDIR/"; done
-cp installer/LICENSE.txt installer/README.txt "$ZIPDIR/"
+for id in vst3 au clap app; do cp -R "$STAGE/root-$id/"* "$ZIPDIR/"; done
+cp installer/LICENSE.txt "$ZIPDIR/"
+cp installer/mac/README.txt "$ZIPDIR/README.txt"
 (cd "$STAGE/zip" && zip -qry "../../../$DIST/Somii-$VERSION-macOS.zip" "Somii")
 
 echo

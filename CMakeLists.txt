@@ -1,13 +1,8 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(Geminus VERSION 0.5.0 LANGUAGES C CXX)
-
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-
 # macOS: one universal binary for Intel and Apple Silicon, back to Catalina (JUCE 8's floor).
-if(APPLE)
+# Set these before project() initialises the Apple toolchain.
+if(CMAKE_HOST_APPLE)
     if(NOT CMAKE_OSX_ARCHITECTURES)
         set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "" FORCE)
     endif()
@@ -15,6 +10,12 @@ if(APPLE)
         set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "" FORCE)
     endif()
 endif()
+
+project(Geminus VERSION 0.5.0 LANGUAGES C CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 add_subdirectory(third_party/JUCE)
 add_subdirectory(third_party/clap-juce-extensions EXCLUDE_FROM_ALL)
@@ -91,7 +92,7 @@ set(SG_FORMATS VST3 Standalone)
 set(SG_COPY_ARGS "")
 if(APPLE)
     list(APPEND SG_FORMATS AU)   # AU can only be built on macOS
-else()
+elseif(WIN32)
     # Windows: install straight into the shared VST3 folder. On macOS JUCE already uses
     # ~/Library/Audio/Plug-Ins, so naming a path here would point the copy at a Windows folder.
     set(SG_COPY_ARGS VST3_COPY_DIR "C:/Program Files/Common Files/VST3/Somii")
@@ -230,13 +231,21 @@ target_link_libraries(SGPluginSmoke
 #    no control that can reach it ────────────────────────────────────────────────────────────
 juce_add_console_app(SGUiSnapshot PRODUCT_NAME "SGUiSnapshot")
 target_sources(SGUiSnapshot PRIVATE tools/UiSnapshot.cpp ${SG_PLUGIN_SOURCES})
-target_include_directories(SGUiSnapshot PRIVATE src)
-target_compile_definitions(SGUiSnapshot PRIVATE JucePlugin_Name="Somii" JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_include_directories(SGUiSnapshot PRIVATE src "${CMAKE_BINARY_DIR}/geminus_ui_include")
+target_compile_definitions(SGUiSnapshot PRIVATE
+    JucePlugin_Name="Somii" JUCE_WEB_BROWSER=1 JUCE_USE_CURL=0
+    GEMINUS_DEV_UI=$<BOOL:${GEMINUS_DEV_UI}>
+    GEMINUS_UI_DIR="${CMAKE_CURRENT_SOURCE_DIR}/ui")
+if(WIN32)
+    target_compile_definitions(SGUiSnapshot PRIVATE JUCE_USE_WIN_WEBVIEW2=1 JUCE_USE_WIN_WEBVIEW2_WITH_STATIC_LINKING=1)
+    target_include_directories(SGUiSnapshot PRIVATE "${GEMINUS_WEBVIEW2_DIR}/include")
+    target_link_libraries(SGUiSnapshot PRIVATE "${GEMINUS_WEBVIEW2_DIR}/x64/WebView2LoaderStatic.lib")
+endif()
 if(MSVC)
     target_compile_options(SGUiSnapshot PRIVATE /utf-8)
 endif()
 target_link_libraries(SGUiSnapshot
-    PRIVATE GeminusArt sg_core juce::juce_audio_utils juce::juce_dsp
+    PRIVATE GeminusArt GeminusWebUI sg_core juce::juce_audio_utils juce::juce_gui_extra juce::juce_dsp
     PUBLIC juce::juce_recommended_config_flags)
 
 # ── Headless tests (juce::UnitTest console runner) ──────────────────────────────────────────

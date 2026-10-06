@@ -7,9 +7,13 @@ on:
     branches: ["**"]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: macos-14
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -17,7 +21,9 @@ jobs:
       - name: Fetch JUCE and clap-juce-extensions
         run: |
           git clone --depth 1 --branch 8.0.15 https://github.com/juce-framework/JUCE third_party/JUCE
-          git clone --depth 1 --recurse-submodules https://github.com/free-audio/clap-juce-extensions third_party/clap-juce-extensions
+          git clone https://github.com/free-audio/clap-juce-extensions third_party/clap-juce-extensions
+          git -C third_party/clap-juce-extensions checkout 9fbefae3d9c3d130aafb558c1ec15427a4bd24be
+          git -C third_party/clap-juce-extensions submodule update --init --recursive
 
       - name: Web UI syntax
         run: node tests/UiSyntaxTests.mjs
@@ -28,19 +34,21 @@ jobs:
       - name: Build
         run: bash scripts/build-mac.sh
 
-      - name: DSP and UI tests
-        run: ./build-mac/SGTests_artefacts/Release/SGTests
+      - name: DSP tests
+        run: |
+          ulimit -s 65532
+          ./build-mac/SGTests_artefacts/Release/SGTests
 
-      # Loads the built VST3 like a DAW and opens its editor: informative here, since a CI runner
-      # has no real audio device or user session.
+      # Renders audio in memory; no audio device is required.
       - name: Plugin smoke test
-        continue-on-error: true
         run: ./build-mac/SGPluginSmoke_artefacts/Release/SGPluginSmoke "build-mac/Geminus_artefacts/Release/VST3/Somii.vst3"
 
       # Apple's own Audio Unit validator. The plug-in is copied to ~/Library by the build.
       - name: auval
-        continue-on-error: true
         run: auval -v aumu Gmns Spkr
+
+      - name: Verify universal bundles
+        run: bash scripts/verify-mac.sh
 
       - name: Package
         run: bash installer/mac/build_pkg.sh
