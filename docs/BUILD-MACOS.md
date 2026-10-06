@@ -16,7 +16,7 @@ A successful run offers **Somii-macOS** under Artifacts, containing:
 - `Somii-0.5.0-macOS-Setup.pkg`
 - `Somii-0.5.0-macOS.zip`
 
-The workflow compiles all targets, runs DSP tests, loads the VST3 and renders audio in
+The workflow compiles shipping formats and validation tools, runs DSP tests, loads the VST3 and renders audio in
 memory, runs Apple's Audio Unit validator, and checks that all four bundles contain
 both architectures. Validation failures stop packaging. The package script verifies
 bundle signatures and uses the same signed bundles in the installer and ZIP.

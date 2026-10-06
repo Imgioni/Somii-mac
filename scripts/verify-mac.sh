@@ -8,6 +8,6 @@ for relative in VST3/Somii.vst3 AU/Somii.component CLAP/Somii.clap Standalone/So
     executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$bundle/Contents/Info.plist")
     binary="$bundle/Contents/MacOS/$executable"
     test -x "$binary"
-    lipo -verify_arch arm64 x86_64 "$binary"
+    lipo "$binary" -verify_arch arm64 x86_64
     echo "Verified $relative (arm64 + x86_64)"
 done
