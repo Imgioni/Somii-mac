@@ -1,6 +1,6 @@
-// FX tab skins. Every module is ours: its colours come from the 002 itself - the cream panel, the
+// FX tab skins. Every module is ours: its colours come from Somii itself - the cream panel, the
 // charcoal insets, the SUPER SIX slate, a walnut, and the SPKR orange - and its knob caps are the
-// 002's own cream / orange / black caps drawn flat. The first versions of some faces were modelled on
+// Somii's own cream / orange / black caps drawn flat. The first versions of some faces were modelled on
 // commercial plug-ins; on 2026-10-04 the user asked for those to be toned down into something
 // personal, so no face here borrows another product's palette, layout, typeface or wording.
 // Used by tools/make-fx-controls.mjs (to draw the knob caps) and by ui/fx.js.
@@ -20,8 +20,6 @@ export const SKINS = {
   // the unbranded effects and CONTOUR follow the active theme (GEMINI / SUPER SIX / DARK), darker
   house:    { ...theme, layout: 'grid' },
   eq:       { ...theme, layout: 'eq' },
-  undertow: { ...M.slate, accent: TEAL, layout: 'undertow' },
-  halo:     { ...M.cream, accent: ORANGE, layout: 'halo' },
   spaces:   { ...M.walnut, accent: AMBER, layout: 'spaces' },
   marble:   { ...M.cream, accent: ORANGE, layout: 'marble' },
   valve:    { ...M.graphite, accent: AMBER, layout: 'valve' },
@@ -29,12 +27,18 @@ export const SKINS = {
   pump:     { ...M.cream, accent: ORANGE, knob: 'ember', layout: 'pump' },
   ceiling:  { ...M.slate, accent: '#FFE8D1', knob: 'bone', layout: 'ceiling' },
   prism:    { ...M.graphite, accent: TEAL, layout: 'prism' },
-  // PARLOUR wears the 002's own LOWER orange, printed in its ink
+  // the three EXPERIMENTAL newcomers (user, 2026-10-05): CARVE draws on graphite in orange, POISE is the
+  // cream panel with the SUPER SIX slate as its ink, RIFT is the slate with the orange coming through it
+  carve:    { ...M.graphite, accent: ORANGE, knob: 'bone', hero: 'ember', layout: 'carve' },
+  poise:    { ...M.cream, accent: '#1E3944', knob: 'coal', hero: 'slate', layout: 'poise' },
+  rift:     { ...M.slate, accent: ORANGE, knob: 'slate', hero: 'bone', layout: 'rift' },
+  // PARLOUR wears Somii's own LOWER orange, printed in its ink
   parlour:  { bg: ORANGE, ink: '#23252A', ink2: '#4A1D10', screen: '#E04E1F', accent: '#23252A', knob: 'coal', hero: 'bone', lower: '#FFE8D1', layout: 'parlour' }
 };
 // which skin each effect wears (ui/fxdefs.mjs ids); anything unlisted is 'house'
-export const SKIN_OF = { revocean: 'undertow', ambient: 'halo', valleyverb: 'spaces', nudestort: 'marble', tuba: 'valve', saturn: 'heat',
-  vulf: 'pump', faraday: 'ceiling', autochroma: 'prism', proq: 'eq', parlour: 'parlour' };
+export const SKIN_OF = { valleyverb: 'spaces', nudestort: 'marble', tuba: 'valve', saturn: 'heat',
+  vulf: 'pump', faraday: 'ceiling', autochroma: 'prism', proq: 'eq', parlour: 'parlour',
+  carve: 'carve', poise: 'poise', rift: 'rift' };
 // layer colours of the LAYER MIX strip: the theme's own (GEMINI: cream UPPER, orange LOWER)
 export const UPPER_COLOUR = 'var(--pop-upper)', LOWER_COLOUR = 'var(--pop-lower)';
 // the cap styles tools/make-fx-controls.mjs draws

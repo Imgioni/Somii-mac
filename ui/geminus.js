@@ -142,9 +142,11 @@ function applyDesktopLayout(enabled) {
   text('desktop-layout-detail',desktopLayout?'LARGE CONTROLS · ONE LAYER AT A TIME':'FULL PANEL WITH KEYBOARD');
 }
 // GEMINI is the default theme; the choice is stored with the other global UI settings.
-const THEMES = ['gemini','super6','dark'];
+// the list comes from the settings page's theme cards (ui/gen.mjs THEME_KEYS)
+const THEMES = all('[data-theme]').map(el=>el.dataset.theme);
 function applyTheme(name) {
-  if (!THEMES.includes(name)) name = 'gemini';
+  name = { ember: 'dark' }[name] || name;   // EMBER became DARK (2026-10-05); ROSSO and the grey DARK are gone
+  if (!THEMES.includes(name)) { name = 'gemini'; call('uiTheme', name); }
   for (const t of THEMES) { document.body.classList.toggle('theme-'+t, t===name && t!=='gemini'); actionState('act-theme-'+t, t===name); }
   fxUi?.retheme();   // the FX faces that follow the theme pick up its colours
 }
@@ -274,10 +276,10 @@ function pbShown(){
     .sort((a,b)=>{const x=pbVal(a,pb.key),y=pbVal(b,pb.key);return (x<y?-1:x>y?1:0)*pb.dir||(a.name<b.name?-1:1);});
 }
 // A pack without an image gets a cover drawn from the instrument's own parts, seeded by its name:
-// fader slots, a knob, one cycle of a wave or the keybed, in 002's colours, with the name set large.
+// fader slots, a knob, one cycle of a wave or the keybed, in Somii's colours, with the name set large.
 // `wide` frames the same square art for the 2:1 panel on the right.
 function genCover(name,wide){
-  let h=2166136261;for(const ch of String(name||'002'))h=Math.imul(h^ch.charCodeAt(0),16777619)>>>0;
+  let h=2166136261;for(const ch of String(name||'Somii'))h=Math.imul(h^ch.charCodeAt(0),16777619)>>>0;
   const rnd=()=>{h=Math.imul(h^(h>>>15),2246822507)>>>0;h=Math.imul(h^(h>>>13),3266489909)>>>0;h=(h^(h>>>16))>>>0;return h/4294967296;};
   const P=[['#262627','#E7E2DA','#F65A27'],['#E7E2DA','#23252A','#F65A27'],['#18323D','#FFE8D1','#68C3D4'],['#568EA3','#FFFFFF','#2B1F18'],['#3A2B23','#E7E2DA','#F2A33A'],['#F65A27','#23252A','#E7E2DA']];
   const [bg,ink,acc]=P[Math.floor(rnd()*P.length)],m=Math.floor(rnd()*4);
@@ -288,9 +290,9 @@ function genCover(name,wide){
   else if(m===2){const k=[1,rnd()*.7,rnd()*.5,rnd()*.4,rnd()*.3];let d='';for(let x=0;x<=160;x+=2){const t=x/160*Math.PI*2;let y=0;k.forEach((g,i)=>y+=g*Math.sin(t*(i+1))/(i+1));d+=(x?'L':'M')+(20+x)+' '+(80-y*34).toFixed(1);}
     a+=`<path d="M20 80H180" stroke="${ink}" stroke-width="1.5" opacity=".3"/><path d="${d}" fill="none" stroke="${ink}" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"/><circle cx="180" cy="80" r="7" fill="${acc}"/>`;}
   else{const lit=Math.floor(rnd()*10);for(let i=0;i<10;i++)a+=`<rect x="${22+i*16}" y="40" width="14" height="86" rx="2" fill="${i===lit?acc:ink}"/>`;[0,1,3,4,5,7,8].forEach(i=>{a+=`<rect x="${33+i*16}" y="40" width="10" height="52" rx="1.5" fill="${bg}"/>`;});}
-  const label=String(name||'002').toUpperCase(),fs=Math.min(34,Math.max(16,300/Math.max(6,label.length)));
+  const label=String(name||'Somii').toUpperCase(),fs=Math.min(34,Math.max(16,300/Math.max(6,label.length)));
   return `<svg viewBox="${wide?'-100 0 400 200':'0 0 200 200'}" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><rect x="-100" y="0" width="400" height="200" fill="${bg}"/>${a}`
-    +`<text x="18" y="28" font-family="Bahnschrift,'SPKR Condensed',sans-serif" font-weight="700" font-size="12" letter-spacing="2" fill="${ink}" opacity=".6">002</text>`
+    +`<text x="18" y="28" font-family="Bahnschrift,'SPKR Condensed',sans-serif" font-weight="700" font-size="12" letter-spacing="2" fill="${ink}" opacity=".6">SOMII</text>`
     +`<text x="18" y="182" font-family="Bahnschrift,'SPKR Condensed',sans-serif" font-stretch="condensed" font-weight="700" font-size="${fs.toFixed(1)}" fill="${ink}">${escHtml(label)}</text></svg>`;
 }
 const packCover=(bank,wide)=>covers[bank]?`<img alt="" src="${covers[bank]}">`:genCover(bank||'LOOSE SOUNDS',wide);
@@ -397,7 +399,7 @@ async function refreshPatches(withCovers=true){
   renderPatches();
 }
 async function loadPatch(file){
-  const name=await native('patchLoad',file.path);if(!name)throw Error('Could not load this 002 patch.');
+  const name=await native('patchLoad',file.path);if(!name)throw Error('Could not load this Somii patch.');
   currentFile=file.path;setPatchName(name);
   $('patch-type-input').value=file.type||'';$('patch-bank-input').value=file.bank||'';
   text('patch-status','LOADED  '+name+(file.bank?'  ·  '+file.bank:''));
@@ -443,10 +445,10 @@ if(!hosted)window.__cuPlay=(a)=>{cuPlay[li()]=a;drawCustom();};
 // dev only (browser preview, no plugin): feed the browser sample rows to look at the layout
 if(!hosted)window.__pb={rows:(f,b)=>{files=f;banks=b||[];renderPatches();}};
 // dev only: '#pop=pop-patches&demo=1' fills the browser with sample rows so the layout can be checked
-if(!hosted&&location.hash.includes('demo=1')){const mk=(n,t,b,f)=>({name:n,path:'C:/002/'+b+'/'+n+'.gpatch',type:t,bank:b,fav:!!f});
+if(!hosted&&location.hash.includes('demo=1')){const mk=(n,t,b,f)=>({name:n,path:'C:/Somii/'+b+'/'+n+'.gpatch',type:t,bank:b,fav:!!f});
   files=[mk('Demacro','LOFI KEYS','FACTORY',1),mk('Gleaming Keys','PLUCKED KEYS','FACTORY'),mk('Seq Me Hard','PLUCKED BASS','PIZZA'),mk('Grape Keys','KEYS','FACTORY'),mk('33 Electric Piano','LOFI KEYS','PIZZA',1),mk('Power Sync','POLY LEAD','FACTORY'),mk('With Grace','STRINGS','MY SOUNDS'),mk('Memory','ATMOSPHERE','MY SOUNDS'),mk('Mars Magma','EVOLVING PAD','PIZZA'),mk('Everlast','PAD','FACTORY'),mk('Super Duper Saw','BIG LEAD','MY SOUNDS'),mk('Mambo Pad','ATMOSPHERE',''),mk('Night Drive','BASS','SYNTHWAVE'),mk('Chrome Arp','ARP','SYNTHWAVE')];
   banks=['FACTORY','MY SOUNDS','PIZZA','SYNTHWAVE'];currentFile=files[4].path;$('patch-name-input').value='Velvet Keys';$('patch-type-input').value='LOFI KEYS';$('patch-bank-input').value='PIZZA';
-  text('patch-folder-path','Documents / 002 / Patches');renderPatches();}
+  text('patch-folder-path','Documents / Somii / Patches');renderPatches();}
 {const pm=$('pop-matrix'),geo=$('mtx-geo'),cells=all('#pop-matrix .mtx-cell');let hot='';
   const set=(r,c)=>{const k=r+','+c;if(k===hot)return;hot=k;all('#pop-matrix .cross,#pop-matrix .hot').forEach(e=>e.classList.remove('cross','hot'));if(r<0)return;
     $('mtx-row'+r)?.classList.add('hot');$('mtx-col'+c)?.classList.add('hot');for(let i=0;i<8;i++){cells[r*8+i]?.classList.add('cross');cells[i*8+c]?.classList.add('cross');}};
@@ -617,8 +619,9 @@ const actions={
   resetAll:async()=>{call('allNotesOff');await init(0);await init(1);for(const[id,s]of Object.entries(metadata))if(/^(global|perf)\./.test(id))oneWrite(id,s.def);},
   patchRefresh:refreshPatches,patchFolderUser:async()=>{folder=await native('patchFolder');await refreshPatches();},patchFolderChoose:async()=>{const c=await native('patchChooseFolder');if(c)folder=c;await refreshPatches();},patchSave:()=>savePatch(shift()),patchSaveAs:()=>savePatch(true),patchOpen:async()=>{const f=await native('patchOpen');if(f){currentFile=f;setPatchName(await native('patchName'));await refreshPatches();}else if(!hosted)await refreshPatches();},patchPrev:()=>adjacentPatch(-1),patchNext:()=>adjacentPatch(1),patchSetCover:setPackCover,
   ab:async()=>{if(hosted){if(shift())await native('abCopy');else abIsB=!!(await native('abToggle'));}else if(shift()||!previewAB)previewAB=store.snapshot();else{const current=store.snapshot();for(const[id,v]of Object.entries(previewAB))oneWrite(id,v);previewAB=current;abIsB=!abIsB;}actionState('act-ab',abIsB);},
-  toggleDesktopLayout,themeSuper6:()=>setTheme('super6'),themeDark:()=>setTheme('dark'),openFx:()=>fxUi.open(),fxSerial:()=>fxUi.serial(),fxParallel:()=>fxUi.parallel(),themeGemini:()=>setTheme('gemini')
+  toggleDesktopLayout,openFx:()=>fxUi.open(),fxSerial:()=>fxUi.serial(),fxParallel:()=>fxUi.parallel()
 };
+for(const t of THEMES)actions['theme_'+t]=()=>setTheme(t);   // the theme cards in SETTINGS
 for(let p=0;p<4;p++)actions['seqPage'+p]=()=>{page=p;selectedStep=p*16;renderSequence();};
 all('[data-action]').forEach(el=>{const fn=actions[el.dataset.action];if(!fn){report('Unbound action: '+el.dataset.action);return;}el.addEventListener('click',async()=>{try{await fn(el);}catch(e){report(e);}finally{focus(el);}});});
 
@@ -685,7 +688,7 @@ window.addEventListener('resize',fit);window.geminusFit=fit;
 applyDesktopLayout(!!(await native('desktopLayout')));applyTheme((await native('uiTheme')) || 'gemini');
 for(const id of Object.keys(metadata))store.ensure(id);setStripLayer(store.read('perf.singleLayer')>.5?'lower':'upper');retarget();renderSequence();fit();call('pageSize',$('panel').offsetWidth,$('panel').offsetHeight);
 if(hosted)native('patchName').then(setPatchName).catch(report);
-window.geminusDiagnostics={hosted,errors,controlCount:controls.length,actionCount:all('[data-action]').length};console.log('002 ready',window.geminusDiagnostics);
+window.geminusDiagnostics={hosted,errors,controlCount:controls.length,actionCount:all('[data-action]').length};console.log('Somii ready',window.geminusDiagnostics);
 // dev: #fx opens the FX page; #fx=1,2,3 also loads those types into the slots
 if(location.hash.startsWith('#fx')){(location.hash.split('=')[1]||'').split('&')[0].split(',').forEach((t,i)=>{if(t)fxUi.choose(i,+t);});actions.openFx();}
 // dev: #pop=pop-matrix opens a pop-over; add &theme=super6 to preview a theme

@@ -7,7 +7,9 @@ import { SKINS, SKIN_OF, UPPER_COLOUR, LOWER_COLOUR } from './fxskins.js';
 
 export function initFx(ctx) {
   const { $, all, store, oneWrite, native, hosted, actionState, text, openPage, report } = ctx;
-  const { FX, DIVS } = JSON.parse($('fx-spec').textContent);
+  const { FX, DIVS, NP, CARVE_BEATS, CARVE_SHAPERS, CARVE_HINTS, FX_MOD_SOURCES, FX_EXT } = JSON.parse($('fx-spec').textContent);
+  const NSRC = FX_MOD_SOURCES.length;
+  const NV = 16;                                                   // live display values per slot (fx::Unit::kVis)
   const TYPES = FX.length + 1;                                     // NONE + effects
   const from = (q, n) => q.steps ? Math.round(n * (q.steps.length - 1)) : q.curve === 'log' ? q.lo * Math.pow(q.hi / q.lo, n) : q.lo + (q.hi - q.lo) * n;
   const to = (q, v) => q.steps ? (q.steps.length > 1 ? v / (q.steps.length - 1) : 0) : q.curve === 'log' ? Math.log(v / q.lo) / Math.log(q.hi / q.lo) : (v - q.lo) / (q.hi - q.lo);
@@ -16,8 +18,12 @@ export function initFx(ctx) {
   const def = (s) => { const t = type(s); return t > 0 ? FX[t - 1] : null; };
   const param = (s, p) => def(s)?.params.find((q) => q.p === p);
   const val = (s, p) => { const q = param(s, p); return q ? from(q, store.read(pid(s, p))) : 0; };
-  const view = { open: -1, band: [-1, -1, -1], vis: new Array(24).fill(0), spec: [], specSm: [[], [], []], level: [0, 0, 0],
-    ir: { name: 'DEFAULT HALL', wave: [], secs: 2.2 }, hist: [[], [], []], grains: [[], [], []], built: [-1, -1, -1], sband: [1, 1, 1] };
+  const view = { open: -1, band: [-1, -1, -1], vis: new Array(3 * NV).fill(0), spec: [], specSm: [[], [], []], level: [0, 0, 0],
+    ir: { name: 'DEFAULT HALL', wave: [], secs: 2.2 }, hist: [[], [], []], grains: [[], [], []], built: [-1, -1, -1], sband: [1, 1, 1],
+    // each slot's extra values (CARVE's waves), its modulation routes (target * NSRC + source -> amount) and
+    // where the plugin is pushing each modulated control now; CARVE's selected shaper
+    ext: [0, 1, 2].map(() => new Array(FX_EXT).fill(0)), mods: [new Map(), new Map(), new Map()], modNow: [new Map(), new Map(), new Map()],
+    shaper: [8, 8, 8], extDirty: [new Set(), new Set(), new Set()] };
   // CONTOUR: the band knobs ('band0..2') follow the selected band: FREQ, GAIN, Q
   const BANDS = [['p12', 'p13', 'p14'], ['p15', 'p16', 'p17'], ['p18', 'p19', 'p20'], ['p21', 'p22', 'p23'], ['p24', 'p25', 'p26'], ['p1', 'p2', 'p3']];
   const skinName = (s) => { const d = def(s); return d ? SKIN_OF[d.id] || 'house' : 'house'; };
@@ -27,7 +33,6 @@ export function initFx(ctx) {
   const FONT = "Bahnschrift,'SPKR Condensed','Arial Narrow',sans-serif";
   const lum = (hex) => { if (!/^#[0-9a-f]{6}$/i.test(hex)) return 0; const n = parseInt(hex.slice(1), 16); return ((n >> 16) * 0.3 + ((n >> 8) & 255) * 0.59 + (n & 255) * 0.11) / 255; };
   const alpha = (hex, a) => /^#[0-9a-f]{6}$/i.test(hex) ? hex + Math.round(a * 255).toString(16).padStart(2, '0') : hex;
-  const HALO_SUB = ['BACKWARD SWELLS', 'A WOVEN CHORUS', 'AN OCTAVE SHIMMER', 'HARMONIC OCTAVES', 'DIGITAL ARTEFACTS', 'UNDER WATER'];
   const lower = (str) => String(str).toLowerCase();
 
   // ---- parameter keys: 'pN', 'mix', 'layer', 'on', 'band0..3' (CONTOUR's selected band) or 'sdrive' (HEAT's selected band)
@@ -57,6 +62,7 @@ export function initFx(ctx) {
       case 'dB': return (v > 0.05 ? '+' : '') + v.toFixed(1) + ' dB';
       case '%': return Math.round(v) + ' %';
       case ':1': return v.toFixed(v < 10 ? 1 : 0) + ':1';
+      case 'st': return (Math.round(v) > 0 ? '+' : '') + Math.round(v) + ' st';
       default: return (Math.abs(v) < 10 && !Number.isInteger(v) ? v.toFixed(2) : Math.round(v)) + (q.unit ? ' ' + q.unit : '');
     }
   }
@@ -115,6 +121,23 @@ export function initFx(ctx) {
   @keyframes fx-menu{from{opacity:0;translate:0 -6px}}
   .fx-menu div{position:static;padding:7px 16px;cursor:pointer;white-space:nowrap}.fx-menu div:hover{background:rgba(255,255,255,.1)}
   .fx-menu .sep{height:1px;padding:0;margin:5px 0;background:rgba(255,255,255,.12);cursor:default}
+  .fxn.modded>.fx-t:first-child{color:var(--facc)!important}
+  .fx-tab{flex-direction:column;gap:4px}.fx-tab i{position:static;width:7px;height:7px;border-radius:50%;background:currentColor;opacity:.25}
+  .fx-tab.lit i{opacity:1;background:var(--facc)}.fx-tab.lit.cur i{background:var(--fbg)}
+  .fx-mod{position:absolute;z-index:25;width:420px;padding:14px 0 10px;border-radius:8px;background:#1C1D20;box-shadow:0 16px 32px -10px rgba(0,0,0,.7),0 0 0 1px rgba(255,255,255,.1);
+    font:700 15px ${FONT};font-stretch:75%;color:#E7E2DA;animation:fx-menu .14s ease-out;cursor:default}
+  .fx-mod>*{position:relative}
+  .fx-mod h4{margin:0 18px 10px;font-size:14px;font-weight:700;letter-spacing:.14em;color:#A8A49C;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fx-mod .r{height:31px;display:flex;align-items:center;padding:0 18px;gap:12px;cursor:ew-resize;touch-action:none}
+  .fx-mod .r:hover{background:rgba(255,255,255,.06)}
+  .fx-mod .n{width:112px;letter-spacing:.06em;white-space:nowrap}
+  .fx-mod .t{flex:1;height:4px;background:rgba(255,255,255,.14);border-radius:2px;pointer-events:none}
+  .fx-mod .t b{position:absolute;top:0;height:4px;border-radius:2px;background:var(--pop-accent,#F65A27)}
+  .fx-mod .t i{position:absolute;left:50%;top:-5px;width:1px;height:14px;background:rgba(255,255,255,.35)}
+  .fx-mod .v{width:58px;text-align:right;color:#A8A49C;white-space:nowrap}
+  .fx-mod .r.on .n,.fx-mod .r.on .v{color:var(--pop-accent,#F65A27)}
+  .fx-mod .f{display:flex;justify-content:space-between;padding:10px 18px 0;font-size:13px;color:#A8A49C;letter-spacing:.1em}
+  .fx-mod .f span{cursor:pointer}.fx-mod .f span:hover{color:#E7E2DA}
   @media (prefers-reduced-motion: reduce){.fx-frame *,.fx-frame{animation:none!important;transition:none!important}}
   `;
   document.head.appendChild(css);
@@ -142,7 +165,9 @@ export function initFx(ctx) {
         const pad = Math.round(d * (o.pad ?? 0.12)), aw = o.arcW || (d >= 110 ? 5 : 4);
         let h = '<div class="fxc fxk" data-key="' + key + '" data-kind="knob" title="Drag up or down · double-click resets" style="' + at(x, y, d, d) + '">'
           + '<svg viewBox="0 0 100 100"><path d="' + arcPath(A0, A1) + '" fill="none" stroke="' + K.ink2 + '" stroke-opacity=".28" stroke-width="' + aw + '" stroke-linecap="round"/>'
-          + '<path class="val" fill="none" stroke="' + (o.colour || K.accent) + '" stroke-width="' + aw + '" stroke-linecap="round"/></svg>'
+          + '<path class="val" fill="none" stroke="' + (o.colour || K.accent) + '" stroke-width="' + aw + '" stroke-linecap="round"/>'
+          // modulation: the range the routed sources can push it through, and where it is now
+          + '<path class="mod" fill="none" stroke="' + K.ink + '" stroke-width="2.5" stroke-linecap="round" opacity=".8"/><circle class="mdot" r="0" fill="' + K.ink + '"/></svg>'
           + '<img class="cap" src="fx-knob-' + (o.cap || K.knob) + '.svg" alt="" style="' + at(pad, pad, d - 2 * pad, d - 2 * pad) + '"></div>';
         const g = o.gap ?? 10, ls = o.lsize || 14;
         if (!o.noLabel) h += T(x - 60, y + d + g, d + 120, L(key, o.label), { size: ls });
@@ -154,6 +179,7 @@ export function initFx(ctx) {
         return '<div class="fxc fxv" data-key="' + key + '" data-kind="vs" data-travel="' + h + '" style="' + at(x - 20, y, 40, h) + '">'
           + '<i style="left:19px;width:2px;top:0;bottom:0;background:' + K.ink2 + ';opacity:.4"></i>'
           + '<i class="fill" style="left:18px;width:4px;bottom:0;background:' + (o.colour || K.accent) + '"></i>'
+          + '<i class="mr" style="left:26px;width:3px;bottom:0;height:0;border-radius:2px;background:' + K.ink + ';opacity:.8"></i>'
           + '<b class="hd" style="top:0;left:6px;width:28px;height:8px;border-radius:2px;background:' + K.ink + '"></b></div>'
           + T(x - 70, y + h + 18, 140, L(key, o.label), { size: 14 }) + T(x - 70, y + h + 40, 140, '', { size: 16, weight: 700, color: 'var(--fink)', val: key });
       },
@@ -161,6 +187,7 @@ export function initFx(ctx) {
       hslider(key, x, y, w, o = {}) {
         return '<div class="fxc fxh" data-key="' + key + '" data-kind="hs" data-mode="' + (o.split ? 'split' : 'fill') + '" data-travel="' + w + '" data-c1="' + (o.c1 || K.accent) + '" data-c2="' + (o.c2 || alpha(K.ink2, 0.3)) + '" style="' + at(x, y - 18, w, 36) + '">'
           + '<i class="tr" style="left:0;right:0;top:16px;height:4px;border-radius:2px"></i>'
+          + '<i class="mr" style="left:0;width:0;top:24px;height:3px;border-radius:2px;background:' + K.ink + ';opacity:.8"></i>'
           + '<b class="hd" style="top:5px;margin-left:-4px;width:8px;height:26px;border-radius:2px;background:' + K.ink + '"></b></div>';
       },
       // a draggable number: value above, label below
@@ -181,7 +208,7 @@ export function initFx(ctx) {
         return spec(s, key).steps.map((name, i) => '<div class="fxc fxg" data-key="' + key + '" data-kind="grid" data-idx="' + i + '" style="'
           + at(x + (i % cols) * cw + 3, y + Math.floor(i / cols) * ch + 3, cw - 6, ch - 6) + 'font-size:' + (o.size || 14) + 'px">' + esc(lower(short(name))) + '</div>').join('');
       },
-      // a section label on a hairline, as the 002 prints its sections
+      // a section label on a hairline, as Somii prints its sections
       head(x, y, w, label) { return '<div class="fx-hd" style="' + at(x, y, w, 18) + '"><span>' + esc(label.toUpperCase()) + '</span><i></i></div>'; },
       // a row of knobs on n equal columns between x0 and x1
       row(keys, y, d, o = {}, n = keys.length, x0 = 24, x1 = null) {
@@ -210,23 +237,54 @@ export function initFx(ctx) {
       if (ks.length > 4) h += b.head(24, 612, W - 48, 'more') + row(ks.slice(4), 640, 68, small, 4);
       return h;
     },
-    // UNDERTOW: the tail as tide lines; four big knobs; the rest as numbers you drag
-    undertow(s, W, H, b) {
-      const row = R(b, W), cw = (W - 48) / 4;
-      let h = b.grid('p9', 24, 78, 3, 128, 42) + b.grid('p10', W - 24 - 2 * 128, 78, 2, 128, 42, { short: (n) => n.replace('FREEZE ', '') === 'ON' ? 'FROZEN' : 'FLOWING' });
-      h += b.screen(24, 132, W - 48, 290);
-      h += row(['p1', 'p2', 'p3', 'p4'], 452, 96, { cap: b.K.hero }, 4);
-      h += b.head(24, 640, W - 48, 'space');
-      ['p5', 'p6', 'p7', 'p8'].forEach((p, i) => { h += b.num(p, 24 + i * cw + (cw - 160) / 2, 670, { w: 160 }); });
+    // CARVE: the eleven shapers as tabs (the dot is lit when one is on); the selected shaper's own wave fills
+    // the display, then its switch, trigger and rate, curve and band, its modes, its mix and settings; the
+    // crossovers, the trigger sensitivity and the output under them all
+    carve(s, W, H, b) {
+      const row = R(b, W), k = view.shaper[s], name = CARVE_SHAPERS[k], P = (j) => 'p' + (1 + 5 * k + j), tw = (W - 48) / 11, own = CARVE_OWN[name];
+      let h = CARVE_SHAPERS.map((n, i) => '<div class="fxc fxg fx-tab" data-key="tab" data-kind="tab" data-idx="' + i + '" title="' + n.toUpperCase() + ' shaper" style="'
+        + at(24 + i * tw + 2, 76, tw - 4, 42) + 'font-size:13px">' + n + '<i></i></div>').join('');
+      h += b.screen(24, 126, W - 48, 210);
+      h += b.T(24, 342, W - 48, 'wave: ' + CARVE_HINTS[name], { size: 12, align: 'left', ls: 0.08 });
+      h += b.grid(P(0), 24, 362, 2, 64, 38) + b.grid(P(3), 164, 362, 4, 92, 38) + b.sel(P(2), W - 24, 364, { align: 'right', size: 17 });
+      h += ['steps', 'lines', 'smooth'].map((c, i) => '<div class="fxc fxg" data-key="xcurve" data-kind="xcurve" data-idx="' + i + '" style="' + at(24 + i * 84 + 3, 409, 78, 32) + 'font-size:14px">' + c + '</div>').join('');
+      h += b.T(W - 24 - 4 * 72 - 70, 416, 62, 'band', { size: 13, align: 'right', ls: 0.14 }) + b.grid(P(4), W - 24 - 4 * 72, 406, 4, 72, 38);
+      if (own.sels.length) {   // its modes, every option in view
+        const cells = own.sels.reduce((a, p) => a + spec(s, p).steps.length, 0), cw = Math.min(110, (W - 48 - 16 * (own.sels.length - 1)) / cells);
+        let x = 24;
+        for (const p of own.sels) { h += b.grid(p, x, 452, spec(s, p).steps.length, cw, 38); x += spec(s, p).steps.length * cw + 16; }
+      }
+      h += b.head(24, 504, W - 48, name + ' · mix and settings');
+      h += row([P(1), ...own.knobs], 530, 64, small, 6);
+      h += b.head(24, 650, W - 48, 'carve');
+      h += row(['p86', 'p87', 'p88', 'p89'], 676, 64, small, 6);
       return h;
     },
-    // HALO: six atmospheres, one pad (TONE across, SPACE up), the eight settings always in view
-    halo(s, W, H, b) {
-      const row = R(b, W);
-      let h = b.grid('p9', 24, 78, 6, (W - 48) / 6, 42);
-      h += b.T(24, 128, W - 48, '', { size: 13, weight: 700, color: b.K.accent, align: 'left', val: 'halosub', ls: 0.16 });
-      h += b.screen(24, 154, W - 48, 300);
-      h += row(['p1', 'p2', 'p3', 'p4'], 484, 72, small, 4) + row(['p5', 'p6', 'p7', 'p8'], 634, 72, small, 4);
+    // POISE: the balance it leans towards and what it is doing about it, the four TONE handles on the
+    // graph (their readings under it); AMOUNT big, then its timing, squash and trim; the channel and DELTA keys
+    poise(s, W, H, b) {
+      const row = R(b, W), cw = (W - 48) / 4;
+      let h = b.screen(24, 80, W - 48, 360);
+      [['p12', 'p13'], ['p14', 'p15'], ['p16', 'p17'], ['p18', 'p19']].forEach(([f, g], i) => {
+        h += b.T(24 + i * cw, 452, cw, lower(spec(s, g).label), { size: 13, ls: 0.12 });
+        h += b.T(24 + i * cw, 472, cw / 2 - 4, '', { size: 15, weight: 700, color: 'var(--fink)', val: f, align: 'right' }) + b.T(24 + i * cw + cw / 2 + 4, 472, cw / 2 - 4, '', { size: 15, weight: 700, color: b.K.accent, val: g, align: 'left' });
+      });
+      h += b.knob('p1', 52, 528, 136, { cap: b.K.hero });
+      h += row(['p2', 'p3', 'p4', 'p5'], 540, 72, {}, 4, 220);
+      h += b.grid('p9', 220, 712, 2, 150, 42, { short: (n) => n.replace(' / ', '/') }) + b.grid('p10', W - 24 - 2 * 150, 712, 2, 150, 42, { short: (n) => n.replace('DELTA ', 'delta ') });
+      return h;
+    },
+    // RIFT: the portal is the pad (SCATTER across, BLOOM up); the scale, the grain shape and FREEZE; the
+    // grains, the delay and the space on one row; stereo and tone under them
+    rift(s, W, H, b) {
+      const row = R(b, W), q = (W - 48) / 4;
+      let h = b.screen(24, 80, W - 48, 290);
+      h += b.grid('p9', 24, 382, 6, (W - 48) / 6, 40);
+      h += b.grid('p10', 24, 428, 4, 104, 40) + b.grid('p17', W - 24 - 2 * 116, 428, 2, 116, 40);
+      h += b.head(24, 484, (W - 48) * 5 / 8 - 12, 'grains') + b.head(24 + (W - 48) * 5 / 8 + 12, 484, (W - 48) * 3 / 8 - 12, 'delay · space');
+      h += row(['p1', 'p2', 'p3', 'p4', 'p14', 'p6', 'p5', 'p8'], 510, 64, small, 8);
+      h += b.head(24, 630, W - 48, 'stereo · tone');
+      h += row(['p7', 'p15', 'p16'], 656, 64, small, 4) + b.grid('p11', 24 + 3 * q + 10, 668, 2, (q - 20) / 2, 40);
       return h;
     },
     // SPACES: the echogram of the space; DECAY big, then the shape, diffusion, movement and tone
@@ -374,20 +432,34 @@ export function initFx(ctx) {
     const K = skin(s);
     for (const el of fr.querySelectorAll('[data-kind]')) {
       if (el.dataset.kind === 'sband') { const on = +el.dataset.idx === view.sband[s]; el.style.color = on ? K.accent : K.ink2; el.style.textDecoration = on ? 'underline' : 'none'; continue; }
+      if (el.dataset.kind === 'tab' || el.dataset.kind === 'xcurve') {   // CARVE's shaper tabs and curve keys
+        const i = +el.dataset.idx, on = el.dataset.kind === 'tab' ? i === view.shaper[s] : i === Math.round(carvePt(s, view.shaper[s], 16));
+        if (el.dataset.kind === 'tab') { el.classList.toggle('cur', on); el.classList.toggle('lit', val(s, 'p' + (1 + 5 * i)) === 1); }
+        el.style.background = on ? K.accent : ''; el.style.color = on ? K.bg : K.ink; el.style.boxShadow = on ? 'none' : '';
+        continue;
+      }
       const key = el.dataset.key, q = spec(s, key); if (!q) continue;
-      const n = norm(s, key);
+      const n = norm(s, key), mr = modRange(s, key);
+      el.classList.toggle('modded', !!mr);
       switch (el.dataset.kind) {
         case 'knob': {
           const cap = el.querySelector('.cap'), v = el.querySelector('.val'), ang = A0 + (A1 - A0) * n;
           if (cap) cap.style.transform = 'rotate(' + ang.toFixed(1) + 'deg)';
           const bip = !q.steps && q.lo < 0 && q.hi > 0 && Math.abs(q.lo + q.hi) < 1e-6;   // symmetric ranges grow from 12 o'clock
           if (v) v.setAttribute('d', bip ? arcPath(Math.min(0, ang), Math.max(0.01, ang)) : arcPath(A0, Math.max(A0 + 0.5, ang)));
+          // modulation: the reachable range inside the value arc, and a dot where the plugin has it now
+          const mp = el.querySelector('.mod'), md = el.querySelector('.mdot'), angOf = (x) => A0 + (A1 - A0) * clamp01(x);
+          if (mp) { if (mr) mp.setAttribute('d', arcPath(angOf(n + mr[0]), Math.max(angOf(n + mr[0]) + 0.5, angOf(n + mr[1])), 37)); else mp.removeAttribute('d'); }
+          const now = mr ? view.modNow[s].get(targetOf(s, key)) : undefined;
+          if (md) { if (now != null) { const a = angOf(n + now) * Math.PI / 180; md.setAttribute('cx', (50 + Math.sin(a) * 37).toFixed(1)); md.setAttribute('cy', (50 - Math.cos(a) * 37).toFixed(1)); md.setAttribute('r', '5'); } else md.setAttribute('r', '0'); }
           break;
         }
         case 'vs': {
           const tr = +el.dataset.travel, hd = el.querySelector('.hd'), fill = el.querySelector('.fill');
           if (hd) hd.style.top = ((1 - n) * tr - 4) + 'px';
           if (fill) fill.style.height = (n * tr) + 'px';
+          const mrEl = el.querySelector('.mr');
+          if (mrEl) { mrEl.style.bottom = (mr ? clamp01(n + mr[0]) * tr : 0) + 'px'; mrEl.style.height = (mr ? (clamp01(n + mr[1]) - clamp01(n + mr[0])) * tr : 0) + 'px'; }
           break;
         }
         case 'hs': {
@@ -395,6 +467,8 @@ export function initFx(ctx) {
           if (hd) hd.style.left = (n * +el.dataset.travel) + 'px';
           // two solid colours meeting at the handle - not a blend
           if (tr) tr.style.background = 'linear-gradient(90deg,' + el.dataset.c1 + ' 0 ' + pc + ',' + el.dataset.c2 + ' ' + pc + ' 100%)';
+          const mrEl = el.querySelector('.mr'), trav = +el.dataset.travel;
+          if (mrEl) { mrEl.style.left = (mr ? clamp01(n + mr[0]) * trav : 0) + 'px'; mrEl.style.width = (mr ? (clamp01(n + mr[1]) - clamp01(n + mr[0])) * trav : 0) + 'px'; }
           break;
         }
         case 'sel': { const t = lower(q.steps[from(q, n)]); el.innerHTML = esc(t) + ' <span style="display:inline-block;vertical-align:-2px">' + CHEVRON + '</span>'; break; }
@@ -403,7 +477,7 @@ export function initFx(ctx) {
       }
     }
     for (const el of fr.querySelectorAll('[data-val]'))
-      el.textContent = el.dataset.val === 'bandname' ? 'BAND ' + (pqBand(s) + 1) : el.dataset.val === 'halosub' ? HALO_SUB[val(s, 'p9')] || '' : readout(s, el.dataset.val);
+      el.textContent = el.dataset.val === 'bandname' ? 'BAND ' + (pqBand(s) + 1) : readout(s, el.dataset.val);
   }
 
   // ---- the routing column and the slots
@@ -428,6 +502,9 @@ export function initFx(ctx) {
       oneWrite(pid(s, 'mix'), d.mix / 100);
     }
     view.band[s] = -1; view.sband[s] = 1; view.hist[s] = []; view.grains[s] = [];
+    // a new effect: its own extra values and no modulation (the processor does the same)
+    view.ext[s] = Array.from({ length: FX_EXT }, (_, i) => d?.ext?.[i] ?? 0); view.extDirty[s].clear();
+    view.mods[s] = new Map(); view.modNow[s] = new Map(); view.shaper[s] = 8;
     refresh(true);
   }
   function openPicker(s) {
@@ -438,12 +515,12 @@ export function initFx(ctx) {
   all('[data-fx-close]').forEach((el) => el.addEventListener('click', () => { $('fx-picker').hidden = true; view.open = -1; }));
 
   // ---- swapping: drag FX n (its routing box or its slot's grip) onto another
-  const SLOT_PARAMS = ['type', 'on', 'mix', 'layer', ...Array.from({ length: 28 }, (_, i) => 'p' + (i + 1))];
+  const SLOT_PARAMS = ['type', 'on', 'mix', 'layer', ...Array.from({ length: NP }, (_, i) => 'p' + (i + 1))];
   async function swap(a, b) {
     if (a === b) return;
     if (hosted) await native('fxSwap', a, b);   // the processor swaps without resetting to defaults
     else for (const p of SLOT_PARAMS) { const va = store.read(pid(a, p)), vb = store.read(pid(b, p)); oneWrite(pid(a, p), vb); oneWrite(pid(b, p), va); }
-    for (const k of ['band', 'sband', 'hist', 'grains']) [view[k][a], view[k][b]] = [view[k][b], view[k][a]];
+    for (const k of ['band', 'sband', 'hist', 'grains', 'ext', 'mods', 'modNow', 'shaper', 'extDirty']) [view[k][a], view[k][b]] = [view[k][b], view[k][a]];
     view.built = [-1, -1, -1];
     refresh(true);
   }
@@ -456,7 +533,7 @@ export function initFx(ctx) {
     let from = g ? +g.dataset.fxGrip : -1;
     // a window's own background also picks it up (not its controls, graph, name or menus)
     const frame = e.target.closest?.('.fx-frame');
-    if (from < 0 && frame && !e.target.closest('[data-kind],.fx-screen,[data-fx-open],.fx-menu')) from = +frame.id.slice(2, 3);
+    if (from < 0 && frame && !e.target.closest('[data-kind],.fx-screen,[data-fx-open],.fx-menu,.fx-mod')) from = +frame.id.slice(2, 3);
     if (from < 0) return;
     e.preventDefault(); e.stopPropagation();
     moving = { from, x: e.clientX, y: e.clientY, live: !!g };
@@ -522,6 +599,118 @@ export function initFx(ctx) {
     fr.appendChild(m);
     setTimeout(() => document.addEventListener('pointerdown', () => m.remove(), { once: true }), 0);
   }
+  // CARVE: shaper k's wave lives in the slot's extra values (16 points at k*17, the curve at k*17+16), read
+  // the way src/plugin/FxUnits.cpp reads it; the shapes the menu draws; each shaper's own controls
+  const CARVE_OWN = {
+    pitch: { knobs: ['p56'], sels: ['p57'] }, reverb: { knobs: ['p58', 'p59', 'p60'], sels: [] }, time: { knobs: ['p62'], sels: ['p61', 'p63'] },
+    drive: { knobs: ['p64', 'p66'], sels: ['p65'] }, noise: { knobs: ['p67', 'p70'], sels: ['p68', 'p69'] }, liquid: { knobs: ['p72', 'p73', 'p74'], sels: ['p71'] },
+    filter: { knobs: ['p76', 'p77', 'p78', 'p79'], sels: ['p75'] }, crush: { knobs: ['p80', 'p81', 'p82'], sels: [] },
+    volume: { knobs: ['p83'], sels: [] }, pan: { knobs: ['p84'], sels: [] }, width: { knobs: ['p85'], sels: [] } };
+  const carvePt = (s, k, i) => view.ext[s][k * 17 + i] ?? 0;
+  function carveAt(s, k, ph) {
+    const x = Math.max(0, Math.min(0.99999, ph)) * 16, i = Math.floor(x), f = x - i, a = carvePt(s, k, i), b = carvePt(s, k, (i + 1) & 15), curve = Math.round(carvePt(s, k, 16));
+    return curve === 0 ? a : a + (b - a) * (curve === 1 ? f : 0.5 - 0.5 * Math.cos(Math.PI * f));
+  }
+  // writes to the extra values: shown at once, sent to the plugin once per frame per shaper
+  function setExt(s, i, v) { view.ext[s][i] = v; view.extDirty[s].add(Math.floor(i / 17)); }
+  function flushExt() {
+    for (let s = 0; s < 3; s++) {
+      if (!view.extDirty[s].size) continue;
+      if (hosted) for (const k of view.extDirty[s]) native('fxExt', s, k * 17, view.ext[s].slice(k * 17, k * 17 + 17)).catch(report);
+      view.extDirty[s].clear();
+    }
+  }
+  const PUMP = [0, 0.32, 0.56, 0.72, 0.82, 0.89, 0.93, 0.96, 0.98, 1, 1, 1, 1, 1, 1, 1];
+  const CARVE_SHAPES = {
+    'pump': (i) => PUMP[i], 'ramp up': (i) => i / 15, 'ramp down': (i) => 1 - i / 15,
+    'sine': (i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / 16), 'triangle': (i) => 1 - Math.abs(i - 8) / 8,
+    'square': (i) => (i < 8 ? 1 : 0), 'gate 1/16': (i) => (i % 2 ? 0 : 1), 'stairs': (i) => Math.floor(i / 4) / 3,
+    'chop': (i) => [1, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1, 0, 0, 0][i], 'random': () => Math.round(Math.random() * 8) / 8,
+    'flat middle': () => 0.5, 'flat top': () => 1
+  };
+  function carveMenu(s, fr, e) {
+    fr.querySelector('.fx-menu')?.remove();
+    const r = fr.getBoundingClientRect(), z = r.width / fr.offsetWidth || 1, k = view.shaper[s];
+    const m = document.createElement('div'); m.className = 'fx-menu';
+    m.style.left = Math.min(fr.offsetWidth - 210, (e.clientX - r.left) / z) + 'px'; m.style.top = Math.min(fr.offsetHeight - 470, (e.clientY - r.top) / z) + 'px';
+    m.innerHTML = Object.keys(CARVE_SHAPES).map((n) => '<div data-shape="' + n + '">' + n + '</div>').join('');
+    m.addEventListener('pointerdown', (ev) => {
+      ev.stopPropagation(); const it = ev.target.closest('[data-shape]'); if (!it) return;
+      for (let i = 0; i < 16; i++) setExt(s, k * 17 + i, clamp01(CARVE_SHAPES[it.dataset.shape](i)));
+      m.remove();
+    });
+    fr.appendChild(m);
+    setTimeout(() => document.addEventListener('pointerdown', () => m.remove(), { once: true }), 0);
+  }
+  // POISE: the four TONE handles (FREQ, GAIN) and where a gain sits on the graph (±12 dB over the height)
+  const TONES = [['p12', 'p13'], ['p14', 'p15'], ['p16', 'p17'], ['p18', 'p19']];
+  const toneY = (db) => 0.5 - db / 12 * 0.42;
+  const POISE_FC = Array.from({ length: 12 }, (_, k) => 30 * Math.pow(2, 0.82 * k));   // its band centres (FxUnits.cpp)
+  // ---- FX modulation (user, 2026-10-05: right-click any control of an effect and assign it to whatever can
+  // move it; kept out of the matrix page). A route adds amount x source to the control's normalised value,
+  // as the matrix does; the plugin applies it per layer (src/plugin/FxRack.cpp).
+  const BIPOLAR = new Set(FX_MOD_SOURCES.map((n, k) => (/^LFO|NOTE|BENDER|RANDOM/.test(n) ? k : -1)));   // the ones that swing both ways
+  const targetOf = (s, key) => { const p = keyP(s, key); return p === 'mix' ? NP : /^p\d+$/.test(p) ? +p.slice(1) - 1 : -1; };
+  const modOf = (s, t, k) => view.mods[s].get(t * NSRC + k) || 0;
+  function setMod(s, t, k, a) {
+    a = Math.round(Math.max(-1, Math.min(1, a)) * 100) / 100;
+    if (a) view.mods[s].set(t * NSRC + k, a); else { view.mods[s].delete(t * NSRC + k); if (!modRange(s, t)) view.modNow[s].delete(t); }
+    if (hosted) native('fxMod', s, t, k, a).catch(report);
+  }
+  // how far below and above its value the routed sources can take a control (null = not modulated)
+  function modRange(s, keyOrT) {
+    const t = typeof keyOrT === 'number' ? keyOrT : targetOf(s, keyOrT); if (t < 0) return null;
+    let lo = 0, hi = 0, any = false;
+    for (let k = 0; k < NSRC; k++) {
+      const a = modOf(s, t, k); if (!a) continue;
+      any = true; const sl = BIPOLAR.has(k) ? -a : 0;
+      lo += Math.min(sl, a, 0); hi += Math.max(sl, a, 0);
+    }
+    return any ? [lo, hi] : null;
+  }
+  function modPanel(s, fr, e, key) {
+    fr.querySelector('.fx-mod')?.remove(); fr.querySelector('.fx-menu')?.remove();
+    const t = targetOf(s, key), q = spec(s, key), r = fr.getBoundingClientRect(), z = r.width / fr.offsetWidth || 1, PH = 64 + NSRC * 31 + 44;
+    const m = document.createElement('div'); m.className = 'fx-mod';
+    m.style.left = Math.max(8, Math.min(fr.offsetWidth - 428, (e.clientX - r.left) / z - 30)) + 'px';
+    m.style.top = Math.max(8, Math.min(fr.offsetHeight - PH - 8, (e.clientY - r.top) / z - 30)) + 'px';
+    // CARVE's own settings carry their shaper's name ("TIME RANGE"); its common ones already do ("TIME MIX")
+    const own = def(s)?.id === 'carve' ? CARVE_SHAPERS.find((n) => CARVE_OWN[n].knobs.includes(keyP(s, key))) : null;
+    const what = own ? own + ' ' + q.label : q.label.startsWith('DRY') ? 'dry / wet' : q.label;
+    m.innerHTML = '<h4>MODULATE · ' + esc(((def(s)?.name || '') + ' · ' + what).toUpperCase()) + '</h4>'
+      + FX_MOD_SOURCES.map((n, k) => '<div class="r" data-src="' + k + '" title="Drag sideways: how much ' + n + ' moves it · wheel for fine steps · double-click clears">'
+        + '<span class="n">' + esc(lower(n)) + '</span><span class="t"><i></i><b></b></span><span class="v"></span></div>').join('')
+      + '<div class="f"><span data-clear>clear all</span><span data-close>close</span></div>';
+    const show = () => {
+      m.querySelectorAll('.r').forEach((row) => {
+        const a = modOf(s, t, +row.dataset.src), bar = row.querySelector('b');
+        row.classList.toggle('on', a !== 0);
+        bar.style.left = (50 + Math.min(0, a) * 50) + '%'; bar.style.width = Math.abs(a) * 50 + '%';
+        row.querySelector('.v').textContent = a ? (a > 0 ? '+' : '') + Math.round(a * 100) + ' %' : '-';
+      });
+      paint(s);
+    };
+    let drag = null, lastDown = null;
+    m.addEventListener('pointerdown', (ev) => {
+      ev.stopPropagation();
+      if (ev.target.closest('[data-close]')) { m.remove(); return; }
+      if (ev.target.closest('[data-clear]')) { for (let k = 0; k < NSRC; k++) if (modOf(s, t, k)) setMod(s, t, k, 0); show(); return; }
+      const row = ev.target.closest('.r'); if (!row || ev.button) return;
+      const k = +row.dataset.src, now = performance.now();
+      if (lastDown?.k === k && now - lastDown.t < 350) { setMod(s, t, k, 0); show(); lastDown = null; return; }
+      lastDown = { k, t: now };
+      drag = { k, x: ev.clientX, a0: modOf(s, t, k), half: row.querySelector('.t').getBoundingClientRect().width / 2 };
+      try { row.setPointerCapture(ev.pointerId); } catch { /* synthetic pointer */ }
+    });
+    m.addEventListener('pointermove', (ev) => { if (!drag) return; setMod(s, t, drag.k, drag.a0 + (ev.clientX - drag.x) / drag.half * (ev.ctrlKey || ev.metaKey ? 0.25 : 1)); show(); });
+    for (const ev of ['pointerup', 'pointercancel']) m.addEventListener(ev, () => { drag = null; });
+    m.addEventListener('wheel', (ev) => { const row = ev.target.closest('.r'); if (!row) return; ev.preventDefault(); ev.stopPropagation(); const k = +row.dataset.src; setMod(s, t, k, modOf(s, t, k) - Math.sign(ev.deltaY) * (ev.ctrlKey ? 0.01 : 0.05)); show(); }, { passive: false });
+    m.addEventListener('contextmenu', (ev) => { ev.preventDefault(); ev.stopPropagation(); });
+    m.addEventListener('dblclick', (ev) => ev.stopPropagation());
+    fr.appendChild(m); show();
+    const away = (ev) => { if (!m.contains(ev.target)) { m.remove(); document.removeEventListener('pointerdown', away, true); } };
+    setTimeout(() => document.addEventListener('pointerdown', away, true), 0);
+  }
   const lastTap = [null, null, null], lastCtl = [null, null, null];   // double-click detection (graph / controls)
   const capture = (el, e) => { try { el.setPointerCapture(e.pointerId); } catch { /* synthetic or already released pointer */ } };
   for (let s = 0; s < 3; s++) {
@@ -534,6 +723,8 @@ export function initFx(ctx) {
       if (el) {
         const key = el.dataset.key, kind = el.dataset.kind, q = spec(s, key);
         if (kind === 'sband') { view.sband[s] = +el.dataset.idx; paint(s); return; }
+        if (kind === 'tab') { view.shaper[s] = +el.dataset.idx; view.built[s] = -1; render(s); paint(s); return; }
+        if (kind === 'xcurve') { setExt(s, view.shaper[s] * 17 + 16, +el.dataset.idx); paint(s); return; }
         if (!q) return;
         if (kind === 'sel') { stepKey(s, key, 1); return; }
         if (kind === 'grid') { oneWrite(pid(s, keyP(s, key)), +el.dataset.idx / (q.steps.length - 1)); return; }
@@ -575,8 +766,13 @@ export function initFx(ctx) {
         if (Math.abs(u - a) < 0.025) drag = { kind: 'xo', p: 'p1', scr };
         else if (Math.abs(u - bb) < 0.025) drag = { kind: 'xo', p: 'p2', scr };
         else { view.sband[s] = u < a ? 0 : u < bb ? 1 : 2; paint(s); drag = { kind: 'sd', b: view.sband[s], scr }; }
-      } else if (d.id === 'ambient') drag = { kind: 'xy', scr };
-      else return;
+      } else if (d.id === 'rift') drag = { kind: 'xy', scr };
+      else if (d.id === 'carve') drag = { kind: 'draw', scr, last: -1 };
+      else if (d.id === 'poise') {   // the nearest TONE handle follows the pointer
+        let best = 0, bd = 1e9;
+        TONES.forEach(([f, g], i) => { const dd = Math.abs(xOfF(val(s, f), 1) - u) + Math.abs(toneY(val(s, g)) - v) * 0.4; if (dd < bd) { bd = dd; best = i; } });
+        drag = { kind: 'tone', h: best, scr };
+      } else return;
       e.preventDefault(); capture(fr, e);
       move(e);
     });
@@ -587,6 +783,13 @@ export function initFx(ctx) {
         if (drag.kind === 'eq') { const bb = BANDS[drag.b]; setReal(s, bb[0], fOfX(u, 1)); if (usesGain(val(s, PQ_SHAPE[drag.b]))) setReal(s, bb[1], (0.5 - v) / 0.42 * 24); }
         else if (drag.kind === 'xo') setReal(s, drag.p, fOfX(u, 1));
         else if (drag.kind === 'sd') setReal(s, 'p' + (3 + drag.b), ((1 - v) - 0.14) / 0.66 * 36);
+        else if (drag.kind === 'draw') {   // CARVE: paint the points under the pointer, filling any it skipped
+          const i = Math.max(0, Math.min(15, Math.floor(u * 16))), y = clamp01(1 - (v - 0.06) / 0.88), from = drag.last < 0 ? i : drag.last;
+          const y0 = drag.last < 0 ? y : drag.y;
+          const sk = view.shaper[s];
+          for (let k = Math.min(from, i); k <= Math.max(from, i); k++) setExt(s, sk * 17 + k, from === i ? y : y0 + (y - y0) * (k - from) / (i - from));
+          drag.last = i; drag.y = y;
+        } else if (drag.kind === 'tone') { const [f, g] = TONES[drag.h]; setReal(s, f, fOfX(u, 1)); setReal(s, g, (0.5 - v) / 0.42 * 12); }
         else { setReal(s, 'p12', clamp01(u) * 100); setReal(s, 'p13', (1 - clamp01(v)) * 100); }
         return;
       }
@@ -604,8 +807,12 @@ export function initFx(ctx) {
       // (CONTOUR's graph double-click is handled on pointer-down, see lastTap)
     });
     fr.addEventListener('contextmenu', (e) => {
+      // a continuous control (knob, fader, number, DRY / WET): its modulation
+      const ctl = e.target.closest('[data-kind="knob"],[data-kind="vs"],[data-kind="hs"],[data-kind="num"]');
+      if (ctl) { const q = spec(s, ctl.dataset.key); if (q && !q.steps && targetOf(s, ctl.dataset.key) >= 0) { e.preventDefault(); modPanel(s, fr, e, ctl.dataset.key); return; } }
       const el = e.target.closest('[data-kind="sel"]'); if (el) { e.preventDefault(); stepKey(s, el.dataset.key, -1); return; }
       const scr = e.target.closest('.fx-screen');
+      if (def(s)?.id === 'carve' && scr) { e.preventDefault(); carveMenu(s, fr, e); return; }
       if (def(s)?.id !== 'proq' || !scr) return;
       e.preventDefault();
       const r = scr.getBoundingClientRect(), b = pqHit(s, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
@@ -689,8 +896,8 @@ export function initFx(ctx) {
     const g = cv.getContext('2d'), W = cv.width, H = cv.height, K = skin(s);
     const light = lum(K.screen) > 0.5, acc = K.accent, ink = K.ink, ink2 = K.ink2, faint = light ? 'rgba(0,0,0,.08)' : 'rgba(255,255,255,.06)';
     g.clearRect(0, 0, W, H);
-    const vis = view.vis.slice(s * 8, s * 8 + 8), v = (p) => val(s, p), top = 60;
-    if (!['tail', 'xy', 'grains', 'eq', 'painting', 'valve', 'echogram', 'gr', 'plate'].includes(d.display)) {
+    const vis = view.vis.slice(s * NV, s * NV + NV), v = (p) => val(s, p), top = 60;
+    if (!['grains', 'eq', 'painting', 'valve', 'echogram', 'gr', 'plate', 'carve', 'poise', 'rift'].includes(d.display)) {
       g.strokeStyle = faint; g.lineWidth = 2;
       for (let i = 1; i < 8; i++) { g.beginPath(); g.moveTo(i * W / 8, 0); g.lineTo(i * W / 8, H); g.stroke(); }
       for (let i = 1; i < 4; i++) { g.beginPath(); g.moveTo(0, i * H / 4); g.lineTo(W, i * H / 4); g.stroke(); }
@@ -711,34 +918,87 @@ export function initFx(ctx) {
         g.globalAlpha = 1; label(readout(s, 'p1'), W - 24, H - 22, 'right');
         break;
       }
-      case 'tail': {   // UNDERTOW: the tail as tide lines, back to front, each one hiding the ones behind it
-        const dec = v('p2'), span = Math.max(1.5, dec * 1.3), x0 = v('p5') / 1000 / span * W, mode = v('p9'), mot = v('p4') / 100, size = v('p1') / 100;
-        const env = (x) => { const tt = (x - x0) / W * span; if (tt < 0) return 0; const att = mode === 2 ? Math.min(1, tt / (0.05 + mot * 0.6)) : Math.min(1, tt / 0.02); return att * Math.pow(10, -3 * tt / dec); };
-        const rows = 16, frozen = v('p10') === 1, speed = frozen ? 0 : t / (900 - mode * 180);
-        const gap = H * 0.7 / rows;
-        for (let r = 0; r < rows; r++) {
-          // each line rises where the tail is loud, in swells of smooth noise; MOTION makes them choppier
-          const yb = H * 0.26 + r * gap, amp = gap * (2.2 + size * 2.4);
-          const y = (x) => yb - env(x) * amp * Math.pow(fbm(x * (0.004 + mot * 0.006) + speed * 0.6, r * 0.9 + speed * 0.15), 1.6) * 1.8;
-          g.globalAlpha = 1; area(y, H, K.screen);
-          g.strokeStyle = r === rows - 4 ? acc : ink2; g.globalAlpha = 0.25 + 0.75 * (r + 1) / rows; g.lineWidth = r === rows - 4 ? 4 : 2.5; line(y);
-        }
-        g.globalAlpha = 1; if (frozen) label('frozen', W - 24, 44, 'right', acc);
-        label(readout(s, 'p2'), 24, 44);
+      case 'carve': {   // CARVE: the selected shaper's wave, its points, and where that shaper is reading it now
+        const k = view.shaper[s], P = (j) => 'p' + (1 + 5 * k + j), on = v(P(0)) === 1, trig = v(P(3)), follow = trig === 3;
+        const x0 = 30, x1 = W - 30, yT = H * 0.06, yB = H * 0.94, Y = (w) => yB - w * (yB - yT), X = (ph) => x0 + ph * (x1 - x0);
+        for (let i = 0; i <= 16; i++) { g.strokeStyle = i % 4 ? faint : alpha(ink2, 0.35); g.lineWidth = 2; g.beginPath(); g.moveTo(X(i / 16), yT); g.lineTo(X(i / 16), yB); g.stroke(); }
+        for (const w of [0, 0.5, 1]) { g.strokeStyle = faint; g.beginPath(); g.moveTo(x0, Y(w)); g.lineTo(x1, Y(w)); g.stroke(); }
+        g.globalAlpha = on ? 1 : 0.4;
+        const pts = []; for (let x = x0; x <= x1; x += 3) pts.push([x, Y(carveAt(s, k, (x - x0) / (x1 - x0)))]);
+        g.fillStyle = alpha(acc, 0.22); g.beginPath(); g.moveTo(x0, yB); for (const [x, y] of pts) g.lineTo(x, y); g.lineTo(x1, yB); g.fill();
+        g.strokeStyle = acc; g.lineWidth = 5; g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.stroke();
+        for (let i = 0; i < 16; i++) { g.fillStyle = ink; g.beginPath(); g.arc(X(i / 16), Y(carvePt(s, k, i)), 8, 0, 7); g.fill(); }
+        g.globalAlpha = 1;
+        // the playhead: the plugin sends where each shaper is; on its own the page runs it at 120 BPM
+        const beats = CARVE_BEATS[v(P(2))] || 1, ph = hosted ? vis[k] || 0 : trig >= 2 ? 0 : (t / 1000 * 2 / beats) % 1;
+        if (on) {
+          g.strokeStyle = ink; g.lineWidth = 3; g.beginPath(); g.moveTo(X(ph), yT); g.lineTo(X(ph), yB); g.stroke();
+          g.fillStyle = ink; g.beginPath(); g.arc(X(ph), Y(carveAt(s, k, ph)), 14, 0, 7); g.fill();
+          g.strokeStyle = acc; g.lineWidth = 4; g.beginPath(); g.arc(X(ph), Y(carveAt(s, k, ph)), 21, 0, 7); g.stroke();
+        } else label(CARVE_SHAPERS[k] + ' is off', x1 - 6, yT + 30, 'right', ink, 24);
+        if (follow) { label('quiet', x0 + 6, yB - 14, 'left', ink2, 22); label('loud', x1 - 6, yB - 14, 'right', ink2, 22); }
+        else label('draw · right-click for shapes', x0 + 6, yB - 14, 'left', ink2, 22);
         break;
       }
-      case 'xy': {   // HALO: rings that spread from the TONE × SPACE point; denser as the decay grows
-        const px = v('p12') / 100 * W, py = (1 - v('p13') / 100) * H, gap = 34 - v('p2') / 30 * 14, n = 16;
-        g.strokeStyle = alpha(ink, 0.18); g.lineWidth = 2; g.beginPath(); g.moveTo(px, 0); g.lineTo(px, H); g.moveTo(0, py); g.lineTo(W, py); g.stroke();
-        g.lineWidth = 2.5;
-        for (let i = 0; i < n; i++) {
-          const r = ((t / 50 + i * gap) % (n * gap)) + 30;
-          g.globalAlpha = Math.max(0, 1 - r / (n * gap)) * 0.7; g.strokeStyle = i % 5 ? ink : acc;
-          g.beginPath(); g.ellipse(px, py, r * (0.7 + v('p3') / 200 * 0.6), r * 0.62, 0, 0, 7); g.stroke();
+      case 'poise': {   // POISE: where it leans (dashed), what it is doing now (filled), the TONE handles
+        const y = (db) => toneY(db) * H, fAt = (x) => fOfX(x, W);
+        g.lineWidth = 2; g.font = '600 22px ' + FONT;
+        const sp = spectrum(s);
+        if (sp) {   // the sound coming out, behind everything
+          const ys = (db) => H - Math.max(0, Math.min(1, (db + 72) / 72)) * H * 0.9;
+          g.fillStyle = alpha(ink2, 0.14); g.beginPath(); g.moveTo(0, H); sp.forEach((db, i) => g.lineTo(xOfF(bandHz(i), W), ys(db))); g.lineTo(W, H); g.closePath(); g.fill();
         }
-        g.globalAlpha = 1; g.fillStyle = acc; g.beginPath(); g.arc(px, py, 22, 0, 7); g.fill();
-        g.strokeStyle = ink; g.lineWidth = 3; g.beginPath(); g.arc(px, py, 34, 0, 7); g.stroke();
-        label('tone ' + Math.round(v('p12')), W - 20, H - 20, 'right'); label('space ' + Math.round(v('p13')), 20, 40);
+        for (const hz of [50, 100, 200, 500, 1000, 2000, 5000, 10000]) {
+          const x = xOfF(hz, W); g.strokeStyle = faint; g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke();
+          g.fillStyle = ink2; g.textAlign = 'center'; g.fillText(hz >= 1000 ? hz / 1000 + 'k' : String(hz), x, H - 14);
+        }
+        for (const db of [-6, 0, 6]) { g.strokeStyle = db ? faint : alpha(ink2, 0.45); g.beginPath(); g.moveTo(0, y(db)); g.lineTo(W, y(db)); g.stroke(); }
+        // the target: a gentle smile plus the handles, around its own average (as the DSP sees it)
+        const shape = (f) => 0.45 * Math.abs(Math.log2(f / 1000)) + TONES.reduce((a, [fp, gp]) => { const o = Math.log2(f / v(fp)); return a + v(gp) * Math.exp(-o * o / (2 * 0.64)); }, 0);
+        const meanT = POISE_FC.reduce((a, f) => a + shape(f), 0) / 12;
+        g.strokeStyle = ink; g.lineWidth = 3; g.setLineDash([12, 10]); line((x) => y(shape(fAt(x)) - meanT)); g.setLineDash([]);
+        // the correction now: the twelve bells it sets (sent by the plugin)
+        const secs = POISE_FC.map((f, k) => biquad('bell', f, 1.1, v('p1') > 0 ? vis[k] || 0 : 0));
+        const total = (x) => Math.max(-14, Math.min(14, secs.reduce((a, b) => a + magDb(b, fAt(x)), 0)));
+        g.fillStyle = alpha(acc, 0.22); g.beginPath(); g.moveTo(0, y(0)); for (let x = 0; x <= W; x += 4) g.lineTo(x, y(total(x))); g.lineTo(W, y(0)); g.fill();
+        g.strokeStyle = acc; g.lineWidth = 5; line((x) => y(total(x)));
+        TONES.forEach(([fp, gp], i) => {
+          const x = xOfF(v(fp), W), yy = y(v(gp));
+          g.fillStyle = K.bg; g.beginPath(); g.arc(x, yy, 24, 0, 7); g.fill();
+          g.strokeStyle = ink; g.lineWidth = 4; g.beginPath(); g.arc(x, yy, 24, 0, 7); g.stroke();
+          g.fillStyle = ink; g.font = '700 22px ' + FONT; g.textAlign = 'center'; g.fillText(String(i + 1), x, yy + 8);
+        });
+        label('lean', 20, 40, 'left', ink2, 22);
+        if ((vis[12] || 0) < -0.1) label('squash ' + vis[12].toFixed(1) + ' db', W - 20, 40, 'right', acc, 22);
+        if (v('p10') === 1) label('delta', W - 20, 72, 'right', acc, 22);
+        break;
+      }
+      case 'rift': {   // RIFT: a tunnel of rings with the grains pulled through it; the pad point is SCATTER × BLOOM
+        const sc = v('p12') / 100, bl = v('p13') / 100, frozen = v('p17') === 1, cx = W / 2, cy = H / 2;
+        const px = 30 + sc * (W - 60), py = H - 30 - bl * (H - 60), speed = frozen ? 0 : 0.00012 + v('p2') / 100 * 0.0004;
+        const rings = 10 + Math.round(bl * 8);
+        for (let i = rings - 1; i >= 0; i--) {   // far rings small and faint; they drift towards you
+          const z = ((i / rings + t * speed) % 1), r = 30 + z * z * Math.max(W, H) * 0.62;
+          const wob = sc * 26 * Math.sin(t / 900 + i * 1.7), ox = (px - cx) * (1 - z) * 0.5, oy = (py - cy) * (1 - z) * 0.5;
+          g.globalAlpha = 0.12 + 0.6 * z * (1 - z) * 2; g.strokeStyle = i % 4 ? ink2 : acc; g.lineWidth = 2 + 3 * z;
+          g.beginPath(); g.ellipse(cx + ox, cy + oy, r * 1.25 + wob, r * 0.82 - wob * 0.5, 0, 0, 7); g.stroke();
+        }
+        g.globalAlpha = 1;
+        // grains: born at the rim, pulled to the centre (reversed ones fly out), size = SIZE, spread = SCATTER
+        const gs = view.grains[s], life = 700 + v('p1') * 2;
+        if (!frozen && Math.random() < v('p2') / 60) gs.push({ born: t, a: Math.random() * 7, rev: Math.random() < v('p14') / 100, j: (Math.random() - 0.5) * sc });
+        while (gs.length && t - gs[0].born > life) gs.shift();
+        for (const gr of gs) {
+          const k = (t - gr.born) / life, z = gr.rev ? k : 1 - k, r = 40 + z * Math.max(W, H) * 0.45, a = gr.a + gr.j * 3 + (1 - z) * (1 + bl * 2);
+          g.globalAlpha = Math.sin(Math.PI * k); g.fillStyle = gr.rev ? ink : acc;
+          g.beginPath(); g.arc(cx + Math.cos(a) * r * 1.25, cy + Math.sin(a) * r * 0.82, 4 + v('p1') / 1000 * 10 * z, 0, 7); g.fill();
+        }
+        g.globalAlpha = 1;
+        g.strokeStyle = alpha(ink, 0.25); g.lineWidth = 2; g.beginPath(); g.moveTo(px, 0); g.lineTo(px, H); g.moveTo(0, py); g.lineTo(W, py); g.stroke();
+        g.fillStyle = acc; g.beginPath(); g.arc(px, py, 20, 0, 7); g.fill();
+        g.strokeStyle = ink; g.lineWidth = 3; g.beginPath(); g.arc(px, py, 32, 0, 7); g.stroke();
+        label('bloom ' + Math.round(v('p13')), 20, 40); label('scatter ' + Math.round(v('p12')), W - 20, H - 20, 'right');
+        if (frozen) label('frozen', W - 20, 40, 'right', acc);
         break;
       }
       case 'echogram': {   // SPACES: early reflections as bars, then the dense tail under its envelope
@@ -777,7 +1037,7 @@ export function initFx(ctx) {
         break;
       }
       case 'plate': {   // PARLOUR: the plate on its four springs, ringing with the input for as long as DECAY says; the post EQ along the bottom
-        const lvl = Math.min(1, view.vis[s * 8] || 0), dec = v('p5'), px = 60, py = 40, pw = W * 0.56, ph = H - 80;
+        const lvl = Math.min(1, vis[0] || 0), dec = v('p5'), px = 60, py = 40, pw = W * 0.56, ph = H - 80;
         view.ring = view.ring || [0, 0, 0];
         view.ring[s] = Math.max(lvl, view.ring[s] * Math.pow(10, -3 * (1 / 60) / Math.max(0.1, dec)));   // decays at the set RT60 (per frame)
         const amp = 6 + 26 * view.ring[s];
@@ -982,7 +1242,7 @@ export function initFx(ctx) {
   // MARBLE's painting: domain-warped noise, one palette per TYPE; DRIVE warps harder, GRAIN makes
   // the bands finer, RESTLESS makes it drift faster. Drawn on the GPU at the display's full
   // resolution with anti-aliased band edges; without WebGL 2, a small CPU version scaled up.
-  // The palettes are 002's own colours.
+  // The palettes are Somii's own colours.
   const PALETTES = [
     [[231, 226, 218], [246, 90, 39], [35, 37, 42], [104, 195, 212], [130, 98, 81]],
     [[255, 232, 209], [86, 142, 163], [24, 50, 61], [246, 90, 39], [231, 226, 218]],
@@ -1062,6 +1322,7 @@ void main(){
     g.imageSmoothingEnabled = true; g.drawImage(art.cv, 0, 0, W, H);
   }
   function loop(t) {
+    flushExt();
     if (!$('pop-fx').hidden) {
       for (let s = 0; s < 3; s++) {
         draw(s, t);
@@ -1081,6 +1342,16 @@ void main(){
       if (state.fxSpec) view.spec = state.fxSpec;
       if (state.fxLevel) view.level = state.fxLevel;
       if (state.irName != null) view.ir = { name: state.irName, wave: state.irWave || [], secs: state.irSeconds || 0 };
+      // the slots' extra values and routes (sent when the plugin changed them), and where modulation has the controls now
+      if (state.fxExt) state.fxExt.forEach((a, s) => { if (!view.extDirty[s].size) view.ext[s] = a.slice(); });
+      if (state.fxMods) { view.mods = [new Map(), new Map(), new Map()]; for (const [s, t, k, a] of state.fxMods) view.mods[s].set(t * NSRC + k, a); }
+      if (state.fxModNow) {
+        const had = view.modNow.map((m) => m.size);
+        view.modNow = [new Map(), new Map(), new Map()];
+        for (const [s, t, o] of state.fxModNow) view.modNow[s].set(t, o);
+        if (!$('pop-fx').hidden) for (let s = 0; s < 3; s++) if (view.modNow[s].size || had[s]) paint(s);
+      }
+      if ((state.fxExt || state.fxMods) && !$('pop-fx').hidden) for (let s = 0; s < 3; s++) paint(s);
     },
     open() { $('fx-picker').hidden = true; refresh(); openPage('pop-fx'); },
     retheme() { view.built = [-1, -1, -1]; refresh(); },

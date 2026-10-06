@@ -29,7 +29,7 @@ int main (int argc, char** argv)
     {
         using namespace fxdefs;
         return t == Tuba || t == Saturn || t == Distortion || t == Bitcrusher || t == Vulf || t == Faraday || t == Mbcomp
-            || t == Stereopan || t == Proq || t == Filter || t == Imager || t == Nudestort;
+            || t == Stereopan || t == Proq || t == Filter || t == Imager || t == Nudestort || t == Carve || t == Poise;
     };
     const auto spectrumDiffDb = [] (const std::vector<float>& a, const std::vector<float>& b)
     {
@@ -64,6 +64,7 @@ int main (int argc, char** argv)
             juce::Thread::sleep (300);               // convolution loads its impulse in the background
             std::vector<float> l (block), r (block);
             fx::Ctx c { v, 120.0, fs };
+            c.ext = fxdefs::kExtDefaults[t];
             double energy = 0.0;
             float peak = 0.0f, tail = 0.0f;   // tail: the silent last 0.5 s
             bool finite = true;
@@ -139,6 +140,86 @@ int main (int argc, char** argv)
         const bool ok = std::abs (db) < 1.5;
         if (! ok) ++failures;
         std::printf ("VALVE level at GAIN %4.0f dB: %+5.2f dB from the input  %s\n", gainDb, db, ok ? "ok" : "FAIL");
+    }
+    // CARVE: each of the eleven shapers on its own (and each TIME mode) stays finite and bounded, and changes the sound
+    static const char* shaperNames[] = { "PITCH", "REVERB", "TIME", "DRIVE", "NOISE", "LIQUID", "FILTER", "CRUSH", "VOLUME", "PAN", "WIDTH" };
+    for (int k = 0; k < 11 + 3; ++k)
+    {
+        const int shaper = std::min (k, 10), timeMode = k >= 11 ? k - 10 : 0;
+        const int sk = k >= 11 ? 2 : shaper;
+        float v[fxdefs::kNP];
+        for (int i = 0; i < fxdefs::kNP; ++i) v[i] = fxdefs::value (fxdefs::Carve, i, fxdefs::kParams[fxdefs::Carve][i].def);
+        for (int j = 0; j < 11; ++j) v[5 * j] = j == sk ? 1.0f : 0.0f;
+        v[60] = static_cast<float> (timeMode);
+        v[82] = v[83] = v[84] = 100.0f;   // VOLUME, PAN and WIDTH at full depth
+        auto u = fx::makeUnit (fxdefs::Carve);
+        u->prepare (fs, block); u->reset();
+        fx::Ctx c { v, 120.0, fs };
+        c.ext = fxdefs::kExtDefaults[fxdefs::Carve];
+        std::vector<float> l (static_cast<size_t> (block)), r (static_cast<size_t> (block));
+        double diff = 0.0, inE = 0.0;
+        float peak = 0.0f;
+        bool finite = true;
+        for (int b = 0; b < static_cast<int> (3.0 * fs / block); ++b)
+        {
+            std::vector<float> dl (static_cast<size_t> (block));
+            for (int i = 0; i < block; ++i)
+            {
+                const int n = b * block + i;
+                l[static_cast<size_t> (i)] = dl[static_cast<size_t> (i)] = 0.3f * (std::sin (n * 0.0359f) + 0.5f * std::sin (n * 0.0571f)) * ((n % 24000) < 12000 ? 1.0f : 0.4f);
+                r[static_cast<size_t> (i)] = 0.3f * (std::sin (n * 0.0377f) + 0.5f * std::sin (n * 0.0449f));
+            }
+            u->process (l.data(), r.data(), block, c);
+            for (int i = 0; i < block; ++i)
+            {
+                const float a = l[static_cast<size_t> (i)];
+                if (! std::isfinite (a) || ! std::isfinite (r[static_cast<size_t> (i)])) finite = false;
+                peak = std::max (peak, std::abs (a));
+                diff += (a - dl[static_cast<size_t> (i)]) * (a - dl[static_cast<size_t> (i)]); inE += dl[static_cast<size_t> (i)] * dl[static_cast<size_t> (i)];
+            }
+        }
+        const double changeDb = 10.0 * std::log10 ((diff + 1.0e-20) / (inE + 1.0e-20));
+        const bool ok = finite && peak < 6.0f && changeDb > -40.0;
+        if (! ok) ++failures;
+        static const char* timeModes[] = { "", "HALF-TIME", "REVERSE", "TAPE STOP" };
+        std::printf ("CARVE %-6s %-9s peak %6.3f  change %6.1f dB  %s\n", shaperNames[sk], timeModes[timeMode], peak, changeDb, ok ? "ok" : "FAIL");
+    }
+    // POISE: it reshapes the tone but keeps the loudness (user, 2026-10-05: a bloom remake) - a bass-heavy
+    // signal comes out more even (the high partial louder against the whole) and within 2 dB of the input
+    for (const float amount : { 3.0f, 7.0f, 10.0f })
+    {
+        float v[fxdefs::kNP];
+        for (int i = 0; i < fxdefs::kNP; ++i) v[i] = fxdefs::value (fxdefs::Poise, i, fxdefs::kParams[fxdefs::Poise][i].def);
+        v[0] = amount;
+        auto u = fx::makeUnit (fxdefs::Poise);
+        u->prepare (fs, block); u->reset();
+        fx::Ctx c { v, 120.0, fs };
+        std::vector<float> l (static_cast<size_t> (block)), r (static_cast<size_t> (block));
+        juce::dsp::IIR::Filter<float> hpIn, hpOut;
+        hpIn.coefficients = hpOut.coefficients = juce::dsp::IIR::Coefficients<float>::makeHighPass (fs, 3000.0f);
+        double eIn = 0.0, eOut = 0.0, hiIn = 0.0, hiOut = 0.0;
+        for (int b = 0; b < static_cast<int> (3.0 * fs / block); ++b)
+        {
+            const bool measure = b * block >= 2 * fs;   // the third second, once it has settled
+            for (int i = 0; i < block; ++i)
+            {
+                const int n = b * block + i;
+                const float x = 0.5f * std::sin (n * 0.0105f) + 0.02f * std::sin (n * 0.785f);   // 80 Hz loud, 6 kHz quiet
+                l[static_cast<size_t> (i)] = r[static_cast<size_t> (i)] = x;
+                const float h = hpIn.processSample (x);
+                if (measure) { eIn += 2.0 * x * x; hiIn += h * h; }
+            }
+            u->process (l.data(), r.data(), block, c);
+            for (int i = 0; i < block; ++i)
+            {
+                const float y = l[static_cast<size_t> (i)], h = hpOut.processSample (y);
+                if (measure) { eOut += y * y + r[static_cast<size_t> (i)] * r[static_cast<size_t> (i)]; hiOut += h * h; }
+            }
+        }
+        const double db = 10.0 * std::log10 (eOut / eIn), hiDb = 10.0 * std::log10 (hiOut / hiIn) - db;
+        const bool ok = std::abs (db) < 2.0 && hiDb > 1.0;
+        if (! ok) ++failures;
+        std::printf ("POISE at AMOUNT %4.1f: level %+5.2f dB from the input, highs %+5.2f dB against the whole  %s\n", amount, db, hiDb, ok ? "ok" : "FAIL");
     }
     std::printf (failures ? "%d FAILED\n" : "all FX checks passed\n", failures);
     return failures ? 1 : 0;

@@ -24,7 +24,7 @@ enum class Env1Mode  { Normal, Inverted, Loop };                           // p.
 enum class Lfo1Wave  { Triangle, RevSaw, SampleHold, Square, HF, HFTrk };  // p.58–59
 enum class Lfo1Mode  { FreeNorm, OnceDds1, ResetDds2 };  // p.59
 // SPKR addition, not on the hardware: how the per-voice LFO 1s relate in FREE mode.
-// Locked = every voice steps together (how 002 has always behaved); PerVoice = each voice card
+// Locked = every voice steps together (how Somii has always behaved); PerVoice = each voice card
 // runs its own LFO with its own phase and a slight rate tolerance, like the real analog voices.
 enum class Lfo1Phase { Locked, PerVoice };
 enum class OscDest   { Dds1, Both, Dds2 };                                 // p.60, p.72

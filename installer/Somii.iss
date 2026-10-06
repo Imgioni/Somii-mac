@@ -1,15 +1,15 @@
-; 002 by SPKR — Windows installer (Inno Setup 6)
+; Somii by SPKR — Windows installer (Inno Setup 6)
 ; Build:  installer\build_installer.cmd
-; Output: dist\002-by-SPKR-<version>-Windows-x64-Setup.exe
+; Output: dist\Somii-<version>-Windows-x64-Setup.exe
 
-#define AppName        "002"
-#define AppFullName    "002 by SPKR"
-#define AppVersion     "0.4.6"
+#define AppName        "Somii"
+#define AppFullName    "Somii"
+#define AppVersion     "0.5.0"
 #define Publisher      "SPKR"
 #define AppURL         "https://spkr.shop"
-#define VstName        "002 by SPKR.vst3"
-#define ClapName       "002 by SPKR.clap"
-#define StandaloneName "002 by SPKR.exe"
+#define VstName        "Somii.vst3"
+#define ClapName       "Somii.clap"
+#define StandaloneName "Somii.exe"
 #define BuildDir       "..\build\Geminus_artefacts\Release"
 
 [Setup]
@@ -35,7 +35,7 @@ DisableDirPage=no
 LicenseFile=LICENSE.txt
 InfoAfterFile=README.txt
 OutputDir=..\dist
-OutputBaseFilename=002-by-SPKR-{#AppVersion}-Windows-x64-Setup
+OutputBaseFilename=Somii-{#AppVersion}-Windows-x64-Setup
 SetupIconFile=icon.ico
 UninstallDisplayIcon={app}\{#StandaloneName}
 UninstallDisplayName={#AppFullName}
@@ -75,7 +75,7 @@ Name: "desktopicon"; Description: "Create a desktop shortcut for the standalone 
 
 [Files]
 ; The VST3 is a bundle (a folder), so it is installed recursively.
-Source: "{#BuildDir}\VST3\{#VstName}\*"; DestDir: "{commoncf64}\VST3\002 By SPKR\{#VstName}"; \
+Source: "{#BuildDir}\VST3\{#VstName}\*"; DestDir: "{commoncf64}\VST3\Somii\{#VstName}"; \
     Components: vst3; Flags: ignoreversion recursesubdirs createallsubdirs uninsremovereadonly
 Source: "{#BuildDir}\CLAP\{#ClapName}"; DestDir: "{commoncf64}\CLAP"; \
     Components: clap; Flags: ignoreversion
@@ -93,8 +93,14 @@ Name: "{autodesktop}\{#AppFullName}"; Filename: "{app}\{#StandaloneName}"; Compo
 Filename: "{app}\{#StandaloneName}"; Description: "Open the standalone app"; \
     Flags: nowait postinstall skipifsilent; Components: standalone
 
-[UninstallDelete]
+; the copies installed under the old name (same plug-in IDs) would show up twice in a host
+[InstallDelete]
 Type: filesandordirs; Name: "{commoncf64}\VST3\002 By SPKR"
+Type: files; Name: "{commoncf64}\CLAP\002 by SPKR.clap"
+Type: files; Name: "{app}\002 by SPKR.exe"
+
+[UninstallDelete]
+Type: filesandordirs; Name: "{commoncf64}\VST3\Somii"
 
 [Code]
 // The WebView2 runtime ships with Windows 11 and current Windows 10, but an old machine can
@@ -113,8 +119,8 @@ function InitializeSetup(): Boolean;
 begin
   Result := True;
   if not WebView2Present() then
-    if MsgBox('002''s window needs the Microsoft Edge WebView2 runtime, which does not seem to be installed.' + #13#10#13#10 +
-              'You can install 002 now and add WebView2 afterwards from:' + #13#10 +
+    if MsgBox('Somii''s window needs the Microsoft Edge WebView2 runtime, which does not seem to be installed.' + #13#10#13#10 +
+              'You can install Somii now and add WebView2 afterwards from:' + #13#10 +
               'https://developer.microsoft.com/microsoft-edge/webview2/' + #13#10#13#10 +
               'Carry on with the installation?', mbConfirmation, MB_YESNO) = IDNO then
       Result := False;

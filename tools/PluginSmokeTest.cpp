@@ -174,11 +174,40 @@ int main (int argc, char* argv[])
             std::cout << "  note energy=" << body << std::endl;
             return tail;
         };
-        // the type is a choice: index 3 = ECHO DELAY, out of (number of choices - 1) steps
+        // the type is a choice: find ECHO DELAY by its name, so a change to the list cannot point the test elsewhere
         const float steps = static_cast<float> (fxType->getNumSteps() - 1);
-        const double dry = echoTail (0.0f), echo = echoTail (3.0f / steps);   // NONE, then ECHO DELAY
+        int echoIndex = -1;
+        for (int i = 0; i <= static_cast<int> (steps) && echoIndex < 0; ++i)
+            if (fxType->getText (static_cast<float> (i) / steps, 64) == "ECHO DELAY") echoIndex = i;
+        check (echoIndex > 0, "ECHO DELAY is in the FX type list");
+        const double dry = echoTail (0.0f), echo = echoTail (static_cast<float> (echoIndex) / steps);   // NONE, then ECHO DELAY
         std::cout << "  tail energy dry=" << dry << "  with ECHO DELAY=" << echo << std::endl;
         check (finite && echo > dry * 10.0 + 1.0e-4, "FX 1 ECHO DELAY is heard after the note ends");
+
+        // FX modulation (right-click a control): VELOCITY -> DRY / WET at -100 % takes the echo away when a
+        // note is played hard. The route goes in through a saved state, as the editor's would be saved.
+        int np = 0;
+        for (auto* p : plugin->getParameters()) if (p->getName (64).startsWith ("FX 1 Param ")) ++np;
+        juce::MemoryBlock saved;
+        plugin->getStateInformation (saved);
+        auto wrap = juce::AudioProcessor::getXmlFromBinary (saved.getData(), static_cast<int> (saved.getSize()));
+        auto* component = wrap ? wrap->getChildByName ("IComponent") : nullptr;
+        juce::MemoryBlock data;
+        if (component && data.fromBase64Encoding (component->getAllSubText()))
+            if (auto xml = juce::AudioProcessor::getXmlFromBinary (data.getData(), static_cast<int> (data.getSize())))
+                if (auto* fxir = xml->getChildByName ("FXIR"))
+                {
+                    for (auto* slot : fxir->getChildWithTagNameIterator ("SLOT"))
+                        if (slot->getIntAttribute ("index") == 0) slot->setAttribute ("mods", juce::String (np) + ":4:-1");   // target np = DRY / WET, source 4 = VELOCITY
+                    juce::AudioProcessor::copyXmlToBinary (*xml, data);
+                    component->deleteAllTextElements(); component->addTextElement (data.toBase64Encoding());
+                    juce::AudioProcessor::copyXmlToBinary (*wrap, data);
+                    plugin->setStateInformation (data.getData(), static_cast<int> (data.getSize()));
+                }
+        const double modded = echoTail (static_cast<float> (echoIndex) / steps);   // the same type: nothing resets
+        std::cout << "  tail energy with VELOCITY -> DRY / WET -100 %=" << modded << " (" << np << " params per slot)" << std::endl;
+        check (finite && modded < echo * 0.1, "an FX modulation route moves its control (VELOCITY takes ECHO DELAY's wet away)");
+        plugin->setStateInformation (saved.getData(), static_cast<int> (saved.getSize()));
         echoTail (0.0f);
     }
 
@@ -282,7 +311,7 @@ int main (int argc, char* argv[])
             const double ratio = static_cast<double> (editor->getWidth()) / juce::jmax (1, editor->getHeight());
             std::cout << "  editor size " << editor->getWidth() << " x " << editor->getHeight() << std::endl;
             const bool knownLayout = std::abs (ratio - 3400.0 / 1330.0) < 0.02
-                                  || std::abs (ratio - 2028.0 / 1152.0) < 0.02;
+                                  || std::abs (ratio - 2092.0 / 1164.0) < 0.02;   // Desktop layout (ui/gen.mjs prints its size); 2028 x 1152 was stale and left a black bar
             check (knownLayout && editor->getWidth() >= 1190, "editor keeps the panel or desktop layout aspect ratio");
         }
     }
@@ -334,6 +363,21 @@ int main (int argc, char* argv[])
                     juce::AudioProcessor::copyXmlToBinary (*wrap, data);
                     plugin->setStateInformation (data.getData(), static_cast<int> (data.getSize())); flush();
                     check (std::abs (tw->getValue() - 0.23f) < 0.001f, "legacy patch seeds 3W from its stored SG cutoff");
+
+                    // A state saved while UNDERTOW (2) and HALO (18) were in the FX list: old PARLOUR (22),
+                    // HALO and VALVE (5) must load as PARLOUR, an empty slot and VALVE.
+                    xml->removeAttribute ("fxTypes");
+                    for (auto [id, old] : { std::pair { "fx1.type", 22 }, { "fx2.type", 18 }, { "fx3.type", 5 } })
+                        for (auto* child : xml->getChildIterator())
+                            if (child->getStringAttribute ("id") == id) child->setAttribute ("value", old);
+                    juce::AudioProcessor::copyXmlToBinary (*xml, data);
+                    component->deleteAllTextElements(); component->addTextElement (data.toBase64Encoding());
+                    juce::AudioProcessor::copyXmlToBinary (*wrap, data);
+                    plugin->setStateInformation (data.getData(), static_cast<int> (data.getSize())); flush();
+                    auto* t1 = named ("FX 1 Type"); auto* t2 = named ("FX 2 Type"); auto* t3 = named ("FX 3 Type");
+                    const auto text = [] (juce::AudioProcessorParameter* p) { return p ? p->getText (p->getValue(), 64) : juce::String ("?"); };
+                    std::cout << "  old FX slots load as " << text (t1) << " / " << text (t2) << " / " << text (t3) << std::endl;
+                    check (text (t1) == "PARLOUR" && text (t2) == "NONE" && text (t3) == "VALVE", "FX types saved before UNDERTOW / HALO were removed load as the same effects");
                 }
                 else check (false, "legacy patch state decodes");
             }

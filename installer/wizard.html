@@ -1,0 +1,37 @@
+<!doctype html>
+<!-- The Windows installer's side image (installer/wizard.bmp, 164 x 314), dressed like the app icon
+     (../ui/icon.html): the grey ground with its hazy washes, Somii, by S·P·K·R, and the keybed fading out.
+     Drawn at 3x (492 x 942) and scaled down when the .bmp is made. -->
+<html><head><meta charset="utf-8"><title>Somii Installer Art</title>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=Martian+Mono:wdth,wght@75..112.5,300..600&display=swap" rel="stylesheet">
+<style>
+  html, body { margin:0; background:#46494C; }
+  #art { position:relative; width:492px; height:942px; overflow:hidden; color:#C5C3C6; font-family:"Archivo","Arial Narrow",sans-serif;
+    background:
+      radial-gradient(70% 40% at 90% 4%, rgba(185,163,148,.38), transparent 70%),
+      radial-gradient(60% 40% at 8% 0%, rgba(197,195,198,.20), transparent 70%),
+      radial-gradient(70% 45% at 2% 50%, rgba(129,141,146,.55), transparent 70%),
+      radial-gradient(60% 40% at 96% 62%, rgba(212,197,199,.28), transparent 70%),
+      #46494C; }
+  .name { position:absolute; left:0; right:0; top:330px; text-align:center; font-weight:900; font-stretch:62%; font-size:150px; line-height:1; letter-spacing:-.02em; }
+  .by { position:absolute; left:0; right:0; top:500px; text-align:center; font-family:"Martian Mono",Consolas,monospace; font-size:24px; letter-spacing:.24em; color:#D4C5C7; opacity:.8; }
+  .rule { position:absolute; left:60px; right:60px; height:3px; background:rgba(197,195,198,.30); }
+  .keys { position:absolute; left:0; bottom:0; width:492px; height:250px;
+    -webkit-mask-image:linear-gradient(#000 0%, rgba(0,0,0,.5) 45%, transparent 100%); mask-image:linear-gradient(#000 0%, rgba(0,0,0,.5) 45%, transparent 100%); }
+</style></head>
+<body>
+<div id="art">
+  <div class="rule" style="top:290px"></div>
+  <div class="name">Somii</div>
+  <div class="by">BY S·P·K·R</div>
+  <div class="rule" style="top:570px"></div>
+  <svg class="keys" id="keys" viewBox="0 0 492 250" aria-hidden="true"></svg>
+</div>
+<script>
+  { const W = 82, B = 48, BH = 140, x0 = -30, g = [], hasBlack = [false, true, true, true, false, true, true];
+    g.push('<rect x="0" y="0" width="492" height="3" fill="rgba(197,195,198,.30)"/>');
+    for (let i = 0; i < 7; i++) g.push(`<rect x="${x0 + i * W + 2}" y="8" width="${W - 4}" height="300" rx="7" fill="#C5C3C6" fill-opacity=".30"/>`);
+    for (let i = 0; i < 7; i++) if (hasBlack[i % 7]) g.push(`<rect x="${x0 + (i + 1) * W - B / 2}" y="8" width="${B}" height="${BH}" rx="6" fill="#35373A"/>`);
+    document.getElementById('keys').innerHTML = g.join(''); }
+</script>
+</body></html>

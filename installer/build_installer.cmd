@@ -1,5 +1,5 @@
 @echo off
-rem Builds the plugin, then packages it into dist\002-by-SPKR-<version>-Windows-x64-Setup.exe
+rem Builds the plugin, then packages it into dist\Somii-<version>-Windows-x64-Setup.exe
 rem and a matching .zip for people who would rather not run an installer.
 setlocal
 cd /d "%~dp0.."
@@ -18,7 +18,7 @@ if not exist "%ISCC%" (
 )
 
 echo == building the installer ==
-"%ISCC%" /Qp "installer\002.iss" || exit /b 1
+"%ISCC%" /Qp "installer\Somii.iss" || exit /b 1
 
 echo == building the zip ==
 powershell -NoProfile -ExecutionPolicy Bypass -File "installer\make_zip.ps1" || exit /b 1

@@ -35,7 +35,7 @@ jobs:
       # has no real audio device or user session.
       - name: Plugin smoke test
         continue-on-error: true
-        run: ./build-mac/SGPluginSmoke_artefacts/Release/SGPluginSmoke "build-mac/Geminus_artefacts/Release/VST3/002 by SPKR.vst3"
+        run: ./build-mac/SGPluginSmoke_artefacts/Release/SGPluginSmoke "build-mac/Geminus_artefacts/Release/VST3/Somii.vst3"
 
       # Apple's own Audio Unit validator. The plug-in is copied to ~/Library by the build.
       - name: auval
@@ -47,6 +47,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: 002-by-SPKR-macOS
+          name: Somii-macOS
           path: dist/*macOS*
           if-no-files-found: error

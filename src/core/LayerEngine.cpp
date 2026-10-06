@@ -158,6 +158,7 @@ void LayerEngine::keyOn (int note, float velocity)
     keyStack.push_back (note);
     if (lastKey < 0 || clockSamples - lastKeyAt > static_cast<uint64_t> (0.03 * fs)) glideFrom = lastKey;
     lastKey = note; lastKeyAt = clockSamples;
+    fxNote = note; fxVel = velocity; ++noteOns;
 
     if (poolUnits() <= 0) return;
     if (isMono()) monoNoteOn (note, velocity);
@@ -601,6 +602,46 @@ float LayerEngine::getSoundingPitch() const noexcept
         for (int s = 0; s < 2; ++s)
             if (v.getVoice (s).isActive()) return v.getVoice (s).getPitch();
     return -1.0f;
+}
+
+void LayerEngine::fxSources (float* out, int n) noexcept
+{
+    auto rnd = [this] { fxRng ^= fxRng << 13; fxRng ^= fxRng >> 17; fxRng ^= fxRng << 5; return static_cast<float> (fxRng) * 4.6566129e-10f - 1.0f; };
+    // LFO 1: a twin at the panel's rate and wave
+    fxLfo1Phase += static_cast<double> (n) * control.lfo1Hz / fs;
+    if (fxLfo1Phase >= 1.0) { fxLfo1Phase -= std::floor (fxLfo1Phase); fxSh1 = rnd(); }
+    const float p1 = static_cast<float> (fxLfo1Phase);
+    switch (control.lfo1Wave)
+    {
+        case Lfo1Wave::RevSaw:     out[0] = 1.0f - 2.0f * p1; break;
+        case Lfo1Wave::SampleHold: out[0] = fxSh1; break;
+        case Lfo1Wave::Square:     out[0] = p1 < 0.5f ? 1.0f : -1.0f; break;
+        default:                   out[0] = 1.0f - 4.0f * std::abs (p1 - 0.5f); break;   // triangle (and the HF waves)
+    }
+    // LFO 2: the layer-wide phase the panel shows
+    const double ph2 = mods.lfo2Phase - std::floor (mods.lfo2Phase);
+    if (ph2 < fxLfo2Last) fxSh2 = rnd();
+    fxLfo2Last = ph2;
+    const float p2 = static_cast<float> (ph2);
+    switch (control.lfo2Wave)
+    {
+        case Lfo2Wave::Sine:       out[1] = std::sin (6.2831853f * p2); break;
+        case Lfo2Wave::RevSaw:     out[1] = 1.0f - 2.0f * p2; break;
+        case Lfo2Wave::SampleHold: out[1] = fxSh2; break;
+        case Lfo2Wave::Square:     out[1] = p2 < 0.5f ? 1.0f : -1.0f; break;
+        case Lfo2Wave::Saw:        out[1] = 2.0f * p2 - 1.0f; break;
+        default:                   out[1] = rnd(); break;
+    }
+    const Voice* v = getNewestVoice();
+    out[2] = v != nullptr ? v->getEnv1Level() : 0.0f;
+    out[3] = v != nullptr ? v->getLevel() : 0.0f;
+    out[4] = fxVel;
+    out[5] = clampf ((static_cast<float> (fxNote) - 60.0f) / 36.0f, -1.0f, 1.0f);
+    out[6] = mods.push;
+    out[7] = mods.channelAT;
+    out[8] = mods.expression;
+    out[9] = mods.ribbonPos;
+    out[10] = mods.bend;
 }
 
 } // namespace sg

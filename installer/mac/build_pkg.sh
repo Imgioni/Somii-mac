@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Packages the macOS build into dist/002-by-SPKR-<version>-macOS-Setup.pkg and a matching .zip.
+# Packages the macOS build into dist/Somii-<version>-macOS-Setup.pkg and a matching .zip.
 # Run scripts/build-mac.sh first (or pass --build).
 #
 # Signing is optional and off unless these are set in the environment:
@@ -13,13 +13,13 @@ cd "$(dirname "$0")/../.."
 
 [ "${1:-}" = "--build" ] && scripts/build-mac.sh
 
-VERSION=$(sed -n 's/^#define AppVersion  *"\([^"]*\)".*/\1/p' installer/002.iss)
-[ -n "$VERSION" ] || { echo "could not read the version from installer/002.iss"; exit 1; }
+VERSION=$(sed -n 's/^#define AppVersion  *"\([^"]*\)".*/\1/p' installer/Somii.iss)
+[ -n "$VERSION" ] || { echo "could not read the version from installer/Somii.iss"; exit 1; }
 ART=build-mac/Geminus_artefacts/Release
-IDENT=com.spkr.002
+IDENT=com.spkr.somii
 STAGE=build-mac/pkg
 DIST=dist
-NAME="002 by SPKR"
+NAME="Somii"
 
 VST3="$ART/VST3/$NAME.vst3"
 AU="$ART/AU/$NAME.component"
@@ -53,7 +53,7 @@ component "$APP"  "/Applications" app
 cat > "$STAGE/distribution.xml" <<XML
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="2">
-    <title>002 by SPKR</title>
+    <title>Somii</title>
     <organization>com.spkr</organization>
     <options customize="always" require-scripts="false" hostArchitectures="arm64,x86_64"/>
     <volume-check><allowed-os-versions><os-version min="10.15"/></allowed-os-versions></volume-check>
@@ -71,7 +71,7 @@ done)
 XML
 cp installer/LICENSE.txt installer/README.txt "$STAGE/"
 
-PKG="$DIST/002-by-SPKR-$VERSION-macOS-Setup.pkg"
+PKG="$DIST/Somii-$VERSION-macOS-Setup.pkg"
 echo "== installer =="
 if [ -n "${SPKR_INSTALLER_ID:-}" ]; then
     productbuild --distribution "$STAGE/distribution.xml" --package-path "$STAGE/pkgs" \
@@ -88,11 +88,11 @@ if [ -n "${SPKR_NOTARY_PROFILE:-}" ]; then
 fi
 
 # the same payload as a zip, for people who would rather drag the bundles into place themselves
-ZIPDIR="$STAGE/zip/002 by SPKR"
+ZIPDIR="$STAGE/zip/Somii"
 mkdir -p "$ZIPDIR"
 for b in "$VST3" "$AU" "$CLAP" "$APP"; do [ -d "$b" ] && cp -R "$b" "$ZIPDIR/"; done
 cp installer/LICENSE.txt installer/README.txt "$ZIPDIR/"
-(cd "$STAGE/zip" && zip -qry "../../../$DIST/002-by-SPKR-$VERSION-macOS.zip" "002 by SPKR")
+(cd "$STAGE/zip" && zip -qry "../../../$DIST/Somii-$VERSION-macOS.zip" "Somii")
 
 echo
 ls -lh "$DIST" | grep macOS

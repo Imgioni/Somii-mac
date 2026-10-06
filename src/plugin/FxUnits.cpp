@@ -139,82 +139,6 @@ inline void width (float& l, float& r, float w) noexcept
     l = m + s; r = m - s;
 }
 
-// ── 2. REV OCEAN ──────────────────────────────────────────────────────────────────────────────
-// FDN tank with three motion modes: ABYSS (reversed octave-up tail folded back in), TIDE (a slow
-// band-pass sweeping the tail), FOAM (diffusion before the tank, so the attack swells).
-struct RevOcean final : Unit
-{
-    double fs = 48000.0;
-    Fdn fdn;
-    sg::DelayLine pre[2];
-    OnePole lowCut[2];
-    Allpass diff[2][4];
-    PitchShifter abyss[2];
-    Svf tide[2];
-    EnvFollower duck;
-    float tidePh = 0.0f, last[2] {};
-
-    void prepare (double s, int) override
-    {
-        fs = s;
-        fdn.prepare (fs);
-        static constexpr float dl[4] = { 0.0047f, 0.0081f, 0.0119f, 0.0163f };
-        for (int c = 0; c < 2; ++c)
-        {
-            pre[c].prepare (static_cast<int> (0.26 * fs));
-            abyss[c].prepare (fs, 180.0f);
-            for (int k = 0; k < 4; ++k) { diff[c][k].prepare (static_cast<int> (0.02 * fs)); diff[c][k].len = dl[k] * static_cast<float> (fs) * (c ? 1.07f : 1.0f); }
-        }
-        duck.set (0.005f, 0.25f, fs);
-    }
-    void reset() override
-    {
-        fdn.reset();
-        for (int c = 0; c < 2; ++c) { pre[c].clear(); lowCut[c].reset(); abyss[c].reset(); tide[c].reset(); for (auto& a : diff[c]) a.reset(); last[c] = 0.0f; }
-        duck.env = 0.0f;
-    }
-    void process (float* l, float* r, int n, const Ctx& c) override
-    {
-        const float* v = c.v;
-        const int mode = static_cast<int> (v[8]);
-        const bool freeze = v[9] >= 0.5f;
-        const float mac = v[3] * 0.01f, pd = std::max (1.0f, v[4] * 0.001f * static_cast<float> (fs));
-        const float wid = v[5] * 0.01f * 1.5f, dk = v[6] * 0.01f;
-        fdn.set (v[0] * 0.01f, v[1], v[2], 0.3f + (mode == 1 ? mac : 0.0f), freeze);
-        for (int ch = 0; ch < 2; ++ch) lowCut[ch].setHz (v[7], fs);
-        for (int ch = 0; ch < 2; ++ch) for (auto& a : diff[ch]) a.g = mode == 2 ? 0.5f + 0.25f * mac : 0.0f;
-        float* io[2] = { l, r };
-        for (int i = 0; i < n; ++i)
-        {
-            const float dry = 0.5f * (l[i] + r[i]);
-            const float env = duck.process (dry);
-            float in[2];
-            for (int ch = 0; ch < 2; ++ch)
-            {
-                pre[ch].push (lowCut[ch].hp (io[ch][i]));
-                float x = freeze ? 0.0f : pre[ch].read (pd);
-                if (mode == 2) for (auto& a : diff[ch]) x = a.process (x);                 // FOAM
-                if (mode == 0) x += softClip (abyss[ch].process (last[ch], -2.0f) * mac * 0.45f);   // ABYSS
-                in[ch] = x;
-            }
-            float ol, orr;
-            fdn.process (in[0], in[1], ol, orr);
-            last[0] = ol; last[1] = orr;
-            if (mode == 1)   // TIDE: a band-pass drifting over two octaves, crossfaded in by MACRO
-            {
-                tidePh += 0.08f / static_cast<float> (fs); if (tidePh >= 1.0f) tidePh -= 1.0f;
-                if ((i & 15) == 0)
-                    for (int ch = 0; ch < 2; ++ch) tide[ch].set (900.0f * std::exp2 (2.0f * std::sin (kTwoPi * (tidePh + 0.25f * ch))), 0.55f, fs);
-                tide[0].process (ol); tide[1].process (orr);
-                ol += mac * (tide[0].bp * 2.0f - ol); orr += mac * (tide[1].bp * 2.0f - orr);
-            }
-            width (ol, orr, wid);
-            const float g = 1.0f - dk * std::min (1.0f, env * 4.0f);
-            l[i] = ol * g; r[i] = orr * g;
-        }
-    }
-};
-
 // ── 3. ECHO DELAY ─────────────────────────────────────────────────────────────────────────────
 // A clean, regular stereo delay (user, 2026-09-19): STEREO, PING-PONG or MONO; time free or
 // synced; feedback through low / high cut, optional drive and a gentle chorus-like MOD; ducking.
@@ -976,78 +900,6 @@ struct Autochroma final : Unit
     }
 };
 
-// ── 18. AMBIENT ───────────────────────────────────────────────────────────────────────────────
-// A mode "tone" processor into a modulated FDN space; TONE × SPACE from the XY pad.
-struct Ambient final : Unit
-{
-    double fs = 48000.0;
-    Fdn fdn;
-    sg::DelayLine pre[2], woven[2];
-    OnePole lc[2], hc[2];
-    PitchShifter rev[2], shim[2], octDn[2], octUp[2];
-    Svf sunk[2];
-    EnvFollower duck;
-    float wph = 0.0f, last[2] {}, held[2] {}, cnt = 0.0f;
-    void prepare (double s, int) override
-    {
-        fs = s; fdn.prepare (fs);
-        for (int c = 0; c < 2; ++c)
-        {
-            pre[c].prepare (static_cast<int> (0.26 * fs)); woven[c].prepare (static_cast<int> (0.05 * fs));
-            rev[c].prepare (fs, 300.0f); shim[c].prepare (fs, 120.0f); octDn[c].prepare (fs, 90.0f); octUp[c].prepare (fs, 90.0f);
-        }
-        duck.set (0.005f, 0.25f, fs);
-    }
-    void reset() override
-    {
-        fdn.reset(); duck.env = 0.0f;
-        for (int c = 0; c < 2; ++c) { pre[c].clear(); woven[c].clear(); lc[c].reset(); hc[c].reset(); rev[c].reset(); shim[c].reset(); octDn[c].reset(); octUp[c].reset(); sunk[c].reset(); last[c] = held[c] = 0.0f; }
-    }
-    void process (float* l, float* r, int n, const Ctx& c) override
-    {
-        const float* v = c.v;
-        const int mode = static_cast<int> (v[8]);
-        const float T = v[11] * 0.01f, S = v[12] * 0.01f;
-        fdn.set (v[0] * 0.01f * (0.5f + 0.5f * S), v[1] * (0.5f + S), 9000.0f, v[3] * 0.01f, false);
-        const float pd = std::max (1.0f, v[4] * 0.001f * static_cast<float> (fs)), dk = v[5] * 0.01f, send = 0.3f + 0.7f * S;
-        for (int ch = 0; ch < 2; ++ch) { lc[ch].setHz (v[6], fs); hc[ch].setHz (v[7], fs); sunk[ch].set (200.0f + 2400.0f * (1.0f - T), 0.7f, fs); }
-        const float step = 2.0f / std::exp2 (16.0f - 12.0f * T), hold = 1.0f + T * 8.0f;
-        float* io[2] = { l, r };
-        for (int i = 0; i < n; ++i)
-        {
-            const float env = duck.process (0.5f * (l[i] + r[i]));
-            wph += 0.3f / static_cast<float> (fs); wph -= std::floor (wph);
-            cnt -= 1.0f; const bool take = cnt <= 0.0f; if (take) cnt += hold;
-            float in[2];
-            for (int ch = 0; ch < 2; ++ch)
-            {
-                pre[ch].push (hc[ch].lp (lc[ch].hp (io[ch][i])));
-                float x = pre[ch].read (pd);
-                switch (mode)
-                {
-                    case 0: x += T * rev[ch].process (x, -1.0f); break;                                             // REFLECT
-                    case 1:                                                                                         // WOVEN
-                        woven[ch].push (x);
-                        for (int k = 0; k < 3; ++k) x += T * 0.4f * woven[ch].read ((0.011f + 0.009f * k) * static_cast<float> (fs) * (1.0f + 0.2f * std::sin (kTwoPi * (wph + 0.33f * k + 0.17f * ch))));
-                        break;
-                    case 2: x += softClip (T * 0.5f * shim[ch].process (last[ch], 2.0f)); break;                     // SIREN
-                    case 3: x += T * 0.5f * (octDn[ch].process (x, 0.5f) + octUp[ch].process (x, 2.0f)); break;      // ORGANIST
-                    case 4: if (take) held[ch] = std::round (x / step) * step; x = x + T * (held[ch] - x); break;   // CODEC
-                    default: break;
-                }
-                in[ch] = x * send;
-            }
-            float ol, orr;
-            fdn.process (in[0], in[1], ol, orr);
-            last[0] = ol; last[1] = orr;
-            if (mode == 5) { sunk[0].process (ol); sunk[1].process (orr); ol += T * (sunk[0].lo - ol); orr += T * (sunk[1].lo - orr); }   // SUNKEN
-            width (ol, orr, v[2] * 0.01f * 1.5f);
-            const float g = 1.0f - dk * std::min (1.0f, env * 4.0f);
-            l[i] = ol * g; r[i] = orr * g;
-        }
-    }
-};
-
 // ── 19. SPACES ────────────────────────────────────────────────────────────────────────────
 // Algorithmic reverb. MODE picks the space (its scale, early reflections,
 // diffusion and brightness); COLOR picks the era: 1970s dark and grainy, 1980s bright with a
@@ -1369,6 +1221,594 @@ struct Parlour final : Unit
         vis[0].store (lvl, std::memory_order_relaxed);
     }
 };
+// ── 23. CARVE ─────────────────────────────────────────────────────────────────────────────────
+// ShaperBox 3's way of working, in our own voice (user, 2026-10-05: "everything that the shaper box has").
+// Eleven shapers in a chain - PITCH, REVERB, TIME, DRIVE, NOISE, LIQUID, FILTER, CRUSH, VOLUME, PAN, WIDTH -
+// each switched on by itself, with its own 16-point wave (ctx.ext: shaper k's points at k*17, its curve at
+// k*17+16), rate, trigger, band and mix. The wave is read in time with the host (SYNC; free at the tempo
+// while it is stopped), restarted on each new note (NOTE) or each hit (TRANSIENT, then it plays once and
+// holds its last point), or by the input level (FOLLOW: quiet left, loud right). BAND keeps a shaper to the
+// low, mid or high band of a three-way split; the other bands pass by it.
+// TIME has four modes: SHIFT (the wave is how far back to read: stutters, scratches), HALF-TIME (each cycle
+// played at 1/RATIO speed), REVERSE (each cycle played backwards) and TAPE STOP (the wave is the speed).
+// Params (v[]): shaper k's ON / MIX / RATE / TRIGGER / BAND at 5k..5k+4, then each shaper's own (see fxdefs).
+// vis[0..10] = each shaper's position on its wave, vis[11] = input level (0..1).
+struct Carve final : Unit
+{
+    static constexpr int kS = 11;
+    enum { Pitch, Reverb, Time, Drive, Noise, Liquid, Filter, Crush, Volume, Pan, Width };
+    static constexpr float kBeats[9] = { 0.125f, 0.25f, 0.5f, 1.0f, 2.0f, 4.0f, 8.0f, 16.0f, 32.0f };
+    static constexpr float kRatio[4] = { 1.5f, 2.0f, 3.0f, 4.0f };
+    struct Shaper
+    {
+        double phase = 0.0;
+        float w = 1.0f, lastPh = 0.0f;
+        bool running = false;
+        uint32_t notes = 0;
+        LR4 xa[2], xb[2];
+        float xaHz = 0.0f, xbHz = 0.0f;
+    };
+    double fs = 48000.0;
+    Shaper sh[kS];
+    EnvFollower level, fast, slow;
+    bool armed = true;
+    // the shapers' own state
+    PitchShifter pitch[2];
+    Fdn space;
+    sg::DelayLine tape[2];
+    float tLag = 0.0f, tFrom = 0.0f, tFade = 1.0f, tLast = 0.0f, prevOff = 0.0f;   // TIME: read offsets and the cross-fade
+    Svf flt[2][2];
+    sg::DelayLine liq[2];
+    Allpass1 phs[2][8];
+    float liqFb[2] {}, phLast[2] {};
+    float held[2] {}, crushCount = 0.0f, crushHold = 1.0f;
+    Rng rng;
+    float pinkB[2][3] {}, brown[2] {}, crackle[2] {};
+    OnePole noiseLp[2], noiseHp[2], driveTilt[2];
+    float maxBack = 1.0f;
+
+    void prepare (double s, int) override
+    {
+        fs = s;
+        maxBack = static_cast<float> (8.0 * fs);
+        for (int c = 0; c < 2; ++c)
+        {
+            tape[c].prepare (static_cast<int> (8.5 * fs));
+            liq[c].prepare (static_cast<int> (0.05 * fs));
+            pitch[c].prepare (fs, 50.0f);
+        }
+        space.prepare (fs);
+        level.set (0.002f, 0.12f, fs); fast.set (0.0005f, 0.03f, fs); slow.set (0.03f, 0.3f, fs);
+    }
+    void reset() override
+    {
+        for (auto& x : sh) { x.phase = 0.0; x.w = 1.0f; x.running = false; x.xaHz = x.xbHz = 0.0f; }
+        level.env = fast.env = slow.env = 0.0f; armed = true;
+        tLag = tFrom = tLast = prevOff = 0.0f; tFade = 1.0f; crushCount = 0.0f;
+        space.reset();
+        for (int c = 0; c < 2; ++c)
+        {
+            tape[c].clear(); liq[c].clear(); pitch[c].reset();
+            flt[c][0].reset(); flt[c][1].reset();
+            for (auto& a : phs[c]) a.z = 0.0f;
+            liqFb[c] = phLast[c] = held[c] = brown[c] = crackle[c] = 0.0f;
+            pinkB[c][0] = pinkB[c][1] = pinkB[c][2] = 0.0f;
+            noiseLp[c].reset(); noiseHp[c].reset(); driveTilt[c].reset();
+        }
+    }
+    static float waveAt (const float* pts, int curve, float ph) noexcept
+    {
+        const float x = clampf (ph, 0.0f, 0.99999f) * 16.0f;
+        const int i = static_cast<int> (x);
+        const float f = x - static_cast<float> (i), a = pts[i], b = pts[(i + 1) & 15];
+        if (curve == 0) return a;
+        return a + (b - a) * (curve == 1 ? f : 0.5f - 0.5f * std::cos (kPi * f));
+    }
+    static int sel (float v) noexcept { return static_cast<int> (v + 0.5f); }
+
+    // one shaper on one band of the signal (x in/out, stereo)
+    void shape (int k, float w, float* x, const float* v, double cycleSamples, float env)
+    {
+        switch (k)
+        {
+            case Pitch:
+            {
+                float st = v[55] * (2.0f * w - 1.0f);
+                if (sel (v[56]) == 1) st = std::round (st);
+                const float blend = std::min (1.0f, std::abs (st) * 4.0f);   // no comb from the shifter at 0
+                if (blend <= 0.0f) { for (int c = 0; c < 2; ++c) pitch[c].process (x[c], 1.0f); break; }
+                for (int c = 0; c < 2; ++c) { const float y = pitch[c].process (x[c], std::exp2 (st / 12.0f)); x[c] += blend * (y - x[c]); }
+                break;
+            }
+            case Reverb:
+            {
+                float l, r;
+                space.process (x[0], x[1], l, r);
+                x[0] += w * l; x[1] += w * r;
+                break;
+            }
+            case Time:
+            {
+                const int mode = sel (v[60]);
+                const float C = static_cast<float> (cycleSamples), ph = sh[Time].lastPh, e = ph * C;
+                float off;
+                switch (mode)
+                {
+                    case 0:  off = v[61] * 0.01f * (1.0f - w) * std::min (C, maxBack); break;            // SHIFT
+                    case 1:  off = e * (1.0f - 1.0f / kRatio[sel (v[62]) & 3]); break;                    // HALF-TIME
+                    case 2:  off = 2.0f * e; break;                                                     // REVERSE
+                    default: tLag += 1.0f - w; off = tLag; break;                                       // TAPE STOP
+                }
+                // a new cycle jumps the read point back to now: cross-fade from where it was (10 ms)
+                if (ph < tLast && mode != 0) { tFrom = prevOff; tFade = 0.0f; tLag = 0.0f; if (mode == 3) off = 0.0f; }
+                tLast = ph;
+                off = std::min (off, maxBack);
+                const float fadeStep = 1.0f / static_cast<float> (0.010 * fs);
+                for (int c = 0; c < 2; ++c)
+                {
+                    tape[c].push (x[c]);
+                    float y = tape[c].read (1.0f + off);
+                    if (tFade < 1.0f) y = y * tFade + tape[c].read (1.0f + std::min (tFrom, maxBack)) * (1.0f - tFade);
+                    x[c] = mode == 0 ? y : x[c] + w * (y - x[c]);
+                }
+                if (tFade < 1.0f) tFade = std::min (1.0f, tFade + fadeStep);
+                prevOff = off;
+                break;
+            }
+            case Drive:
+            {
+                const float db = v[63] * w;
+                if (db <= 0.01f) break;
+                const float kk = dbToGain (db), amt = std::min (1.0f, db / 6.0f), tilt = v[65] * 0.01f;
+                const int m = sel (v[64]);
+                for (int c = 0; c < 2; ++c)
+                {
+                    const float u = x[c];
+                    float y;
+                    switch (m)
+                    {
+                        case 1:  y = clampf (kk * u, -1.0f, 1.0f) * (0.5f / std::min (1.0f, 0.5f * kk)); break;
+                        case 2:  y = std::sin (kk * u) / std::sqrt (kk); break;
+                        case 3:  { const float z = kk * u; y = (z >= 0.0f ? std::tanh (z) : 1.4f * std::tanh (z / 1.4f)) * (0.5f / std::tanh (0.5f * kk)); break; }
+                        default: y = std::tanh (kk * u) * (0.5f / std::tanh (0.5f * kk)); break;
+                    }
+                    const float lo = driveTilt[c].lp (y), hi = y - lo;   // TONE: tilt about 1 kHz
+                    x[c] = u + amt * (lo * (1.0f - tilt) + hi * (1.0f + tilt) - u);
+                }
+                break;
+            }
+            case Noise:
+            {
+                const int type = sel (v[67]), m = sel (v[68]);
+                float g = dbToGain (v[66]) * w;
+                if (m == 1) g *= std::min (1.0f, env * 2.0f);
+                else if (m == 2) g *= 1.0f - std::min (1.0f, env * 4.0f);
+                for (int c = 0; c < 2; ++c)
+                {
+                    noiseLp[c].setHz (v[69], fs);
+                    const float wht = rng.bi();
+                    float n;
+                    auto& b = pinkB[c];
+                    b[0] = 0.99765f * b[0] + wht * 0.0990460f; b[1] = 0.96300f * b[1] + wht * 0.2965164f; b[2] = 0.57000f * b[2] + wht * 1.0526913f;
+                    const float pink = (b[0] + b[1] + b[2] + wht * 0.1848f) * 0.25f;
+                    crackle[c] = crackle[c] * 0.55f + (rng.next() < 0.0006f ? rng.bi() : 0.0f);
+                    switch (type)
+                    {
+                        case 1:  n = pink; break;
+                        case 2:  noiseHp[c].setHz (5000.0f, fs); n = noiseHp[c].hp (wht); break;
+                        case 3:  n = pink * 0.35f + crackle[c]; break;
+                        case 4:  n = crackle[c]; break;
+                        case 5:  brown[c] = fixDenorm (brown[c] * 0.995f + wht * 0.06f); n = brown[c] * 2.5f; break;
+                        default: n = wht * 0.6f; break;
+                    }
+                    x[c] += noiseLp[c].lp (n) * g;
+                }
+                break;
+            }
+            case Liquid:
+            {
+                const int m = sel (v[70]);
+                const float depth = v[71] * 0.01f, fb = v[72] * 0.01f, st = v[73] * 0.01f;
+                for (int c = 0; c < 2; ++c)
+                {
+                    const float wc = c == 0 ? w : w + (1.0f - 2.0f * w) * st * 0.5f;
+                    if (m == 1)   // PHASER: eight stages, the wave moves the centre
+                    {
+                        const float a = Allpass1::coeff (100.0f * std::exp2 (wc * depth * 6.5f), fs);
+                        float y = x[c] + phLast[c] * fb * 0.9f;
+                        for (auto& ap : phs[c]) y = ap.process (y, a);
+                        phLast[c] = fixDenorm (y);
+                        x[c] = 0.5f * (x[c] + y);
+                    }
+                    else          // FLANGER (short) or CHORUS (longer, no feedback)
+                    {
+                        const float ms = m == 0 ? 0.3f + wc * depth * 7.7f : 7.0f + wc * depth * 18.0f;
+                        liq[c].push (fixDenorm (x[c] + liqFb[c]));
+                        const float t = liq[c].read (std::max (1.0f, ms * 0.001f * static_cast<float> (fs)));
+                        liqFb[c] = m == 0 ? softClip (t * fb) : 0.0f;
+                        x[c] = 0.7f * (x[c] + t);
+                    }
+                }
+                break;
+            }
+            case Filter:
+            {
+                const int type = sel (v[74]);
+                const float lo = std::max (20.0f, v[75]), hi = std::max (lo, v[76]);
+                const float fc = lo * std::pow (hi / lo, w), res = v[77] * 0.01f, drv = 1.0f + 4.0f * v[78] * 0.01f;
+                for (int c = 0; c < 2; ++c)
+                {
+                    const float u = drv > 1.0f ? std::tanh (x[c] * drv) / std::sqrt (drv) : x[c];
+                    auto& a = flt[c][0]; auto& b = flt[c][1];
+                    a.set (fc, res, fs);
+                    a.process (u);
+                    float y;
+                    switch (type)
+                    {
+                        case 1:  b.set (fc, res * 0.5f, fs); b.process (a.lo); y = b.lo; break;
+                        case 2:  y = a.hi; break;
+                        case 3:  b.set (fc, res * 0.5f, fs); b.process (a.hi); y = b.hi; break;
+                        case 4:  y = a.bp; break;
+                        case 5:  y = a.lo + a.hi; break;
+                        case 6:  y = u + a.bp * (1.0f + 3.0f * res); break;
+                        default: y = a.lo; break;
+                    }
+                    x[c] = y;
+                }
+                break;
+            }
+            case Crush:
+            {
+                if (w < 0.001f) break;
+                const float bits = 16.0f - (16.0f - v[79]) * w, rate = static_cast<float> (fs) * std::pow (v[80] / static_cast<float> (fs), w);
+                if ((crushCount += 1.0f) >= crushHold)
+                {
+                    crushCount -= crushHold;
+                    crushHold = std::max (1.0f, static_cast<float> (fs) / rate * (1.0f + v[81] * 0.01f * 0.5f * rng.bi()));
+                    const float steps = std::exp2 (bits - 1.0f);
+                    for (int c = 0; c < 2; ++c) held[c] = std::round (x[c] * steps) / steps;
+                }
+                x[0] = held[0]; x[1] = held[1];
+                break;
+            }
+            case Volume: { const float g = 1.0f - v[82] * 0.01f * (1.0f - w); x[0] *= g; x[1] *= g; break; }
+            case Pan:    { float gl, gr; panGains (v[83] * 0.01f * (2.0f * w - 1.0f), gl, gr); x[0] *= gl; x[1] *= gr; break; }
+            default:     width (x[0], x[1], 1.0f + v[84] * 0.01f * (2.0f * w - 1.0f)); break;
+        }
+    }
+
+    void process (float* l, float* r, int n, const Ctx& c) override
+    {
+        const float* v = c.v;
+        static const float zero[fxdefs::kExt] = {};
+        const float* ext = c.ext != nullptr ? c.ext : zero;
+        const double ppqStep = c.bpm / (60.0 * fs);
+        const float sens = v[87] * 0.01f, floorDb = -12.0f - 48.0f * sens, trigRatio = dbToGain (12.0f - 10.0f * sens);
+        const float outG = dbToGain (v[88]), sm = smoothCoeff (0.0015f, fs);
+        bool on[kS];
+        double cycle[kS];
+        for (int k = 0; k < kS; ++k)
+        {
+            on[k] = v[5 * k] >= 0.5f;
+            cycle[k] = beatsToSeconds (kBeats[juce::jlimit (0, 8, sel (v[5 * k + 2]))], c.bpm) * fs;
+            auto& s = sh[k];
+            if (sel (v[5 * k + 4]) > 0 && (v[85] != s.xaHz || v[86] != s.xbHz))
+            {
+                for (int ch = 0; ch < 2; ++ch) { s.xa[ch].setKeep (v[85], fs); s.xb[ch].setKeep (v[86], fs); }
+                s.xaHz = v[85]; s.xbHz = v[86];
+            }
+            if (k == Reverb && on[k]) space.set (0.2f + 0.8f * v[57] * 0.01f, v[58], 1500.0f * std::pow (12.0f, (v[59] + 100.0f) / 200.0f), 0.3f, false, 0.4f);
+        }
+        float envNow = 0.0f;
+        for (int i = 0; i < n; ++i)
+        {
+            const float mono = 0.5f * (l[i] + r[i]);
+            const float env = level.process (mono), fe = fast.process (mono), se = slow.process (mono);
+            envNow = env;
+            bool hit = false;
+            if (armed && fe > se * trigRatio && fe > 0.003f) { hit = true; armed = false; }
+            else if (fe < se * 1.1f) armed = true;
+            float x[2] = { l[i], r[i] };
+            for (int k = 0; k < kS; ++k)
+            {
+                auto& s = sh[k];
+                // where on its wave this shaper is
+                float ph;
+                const int trig = sel (v[5 * k + 3]);
+                if (trig == 3) ph = clampf ((gainToDb (env) - floorDb) / -floorDb, 0.0f, 0.99999f);
+                else
+                {
+                    const double inc = 1.0 / std::max (1.0, cycle[k]);
+                    if (trig == 2)
+                    {
+                        if (hit) { s.phase = 0.0; s.running = true; }
+                        if (s.running && (s.phase += inc) >= 1.0) { s.phase = 0.99999; s.running = false; }
+                    }
+                    else if (trig == 1)
+                    {
+                        if (c.noteOns != s.notes) { s.notes = c.noteOns; s.phase = 0.0; }
+                        if ((s.phase += inc) >= 1.0) s.phase -= 1.0;
+                    }
+                    else if (c.playing)
+                    {
+                        const double q = (c.ppq + i * ppqStep) / kBeats[juce::jlimit (0, 8, sel (v[5 * k + 2]))];
+                        s.phase = q - std::floor (q);
+                    }
+                    else if ((s.phase += inc) >= 1.0) s.phase -= 1.0;
+                    ph = static_cast<float> (s.phase);
+                }
+                s.lastPh = ph;
+                if (! on[k]) continue;
+                const float* pts = ext + k * 17;
+                s.w += sm * (waveAt (pts, juce::jlimit (0, 2, sel (pts[16])), ph) - s.w);
+
+                // its band (the rest passes by), then its own mix
+                const int band = sel (v[5 * k + 4]);
+                float y[2] = { x[0], x[1] }, rest[2] = { 0.0f, 0.0f };
+                if (band > 0)
+                    for (int ch = 0; ch < 2; ++ch)
+                    {
+                        float lo, up, mid, hi;
+                        s.xa[ch].split (x[ch], lo, up);
+                        s.xb[ch].split (up, mid, hi);
+                        y[ch] = band == 1 ? lo : band == 2 ? mid : hi;
+                        rest[ch] = band == 1 ? mid + hi : band == 2 ? lo + hi : lo + mid;
+                    }
+                const float d0 = y[0], d1 = y[1], mix = v[5 * k + 1] * 0.01f;
+                shape (k, s.w, y, v, cycle[k], env);
+                x[0] = rest[0] + d0 + mix * (y[0] - d0);
+                x[1] = rest[1] + d1 + mix * (y[1] - d1);
+            }
+            l[i] = x[0] * outG;
+            r[i] = x[1] * outG;
+        }
+        for (int k = 0; k < kS; ++k) vis[static_cast<size_t> (k)].store (sh[k].lastPh, std::memory_order_relaxed);
+        vis[11].store (clampf ((gainToDb (envNow) + 60.0f) / 60.0f, 0.0f, 1.0f), std::memory_order_relaxed);
+    }
+};
+
+// ── 24. POISE ─────────────────────────────────────────────────────────────────────────────────
+// An adaptive tone shaper (a near-identical remake of oeksound bloom's behaviour, our own code). Twelve
+// bands, ~0.8 octave apart, listen to the sound and lean it towards a balanced target: equal energy per
+// band (pink) with a little more at both ends, plus the four TONE handles. The correction keeps the
+// loudness: the gains are moved so that, weighted by where the energy is, they average 0 dB. AMOUNT
+// (0-10) is how hard it leans; past 7 each band's fast level is also pulled towards its slow level above
+// SQUASH CAL (upward and downward). STEREO detects on the sum and moves both sides together; MID / SIDE
+// shapes each on its own. DELTA plays only what POISE changed. AMOUNT 0 leaves the sound untouched.
+// vis[0..11] = each band's gain now (dB, mid/stereo), vis[12] = squash at work (dB), vis[13] = level 0..1.
+struct Poise final : Unit
+{
+    static constexpr int kB = 12;
+    double fs = 48000.0;
+    float fc[kB] {};
+    Biquad det[2][kB], eq[2][kB];
+    float slowP[2][kB] {}, fastP[2][kB] {}, gain[2][kB] {};
+    float lvl = 0.0f, squashVis = 0.0f, pIn = 0.0f, pOut = 0.0f, match = 1.0f;
+    int tick = 0;
+    void prepare (double s, int) override
+    {
+        fs = s;
+        for (int k = 0; k < kB; ++k)
+        {
+            fc[k] = 30.0f * std::exp2 (0.82f * static_cast<float> (k));
+            for (auto& d : det) d[k].set (Biquad::BP, fc[k], 1.75f, 0.0f, fs);
+        }
+        reset();
+    }
+    void reset() override
+    {
+        tick = 0; lvl = squashVis = pIn = pOut = 0.0f; match = 1.0f;
+        for (int g = 0; g < 2; ++g)
+            for (int k = 0; k < kB; ++k)
+            {
+                det[g][k].reset(); slowP[g][k] = fastP[g][k] = gain[g][k] = 0.0f;
+                eq[g][k].set (Biquad::Bell, fc[k], 1.1f, 0.0f, fs); eq[g][k].reset();
+            }
+    }
+    // where the target sits for each band (dB, relative): a gentle smile plus the four handles
+    static float shape (float f, const float* v) noexcept
+    {
+        float s = 0.45f * std::abs (std::log2 (f / 1000.0f));
+        for (int h = 0; h < 4; ++h)
+        {
+            const float o = std::log2 (f / v[11 + 2 * h]);
+            s += v[12 + 2 * h] * std::exp (-o * o / (2.0f * 0.8f * 0.8f));
+        }
+        return s;
+    }
+    void update (int g, const float* v)
+    {
+        const float amount = v[0], strength = std::min (amount, 7.0f) / 7.0f * 0.6f, squash = std::max (0.0f, (amount - 7.0f) / 3.0f);
+        float L[kB], T[kB], sum = 0.0f, top = -200.0f, meanL = 0.0f, meanT = 0.0f;
+        for (int k = 0; k < kB; ++k) { L[k] = 10.0f * std::log10 (slowP[g][k] + 1.0e-12f); sum += slowP[g][k]; top = std::max (top, L[k]); }
+        if (sum < 1.0e-8f) return;   // silence: hold the last correction rather than boost the noise floor
+        for (int k = 0; k < kB; ++k) { L[k] = std::max (L[k], top - 45.0f); T[k] = shape (fc[k], v); meanL += L[k]; meanT += T[k]; }
+        meanL /= kB; meanT /= kB;
+        float target[kB], avg = 0.0f;
+        for (int k = 0; k < kB; ++k)
+        {
+            target[k] = clampf (strength * (meanL + T[k] - meanT - L[k]), -12.0f, 12.0f);
+            avg += target[k] * slowP[g][k] / sum;
+        }
+        float sq = 0.0f;
+        for (int k = 0; k < kB; ++k)
+        {
+            float t = target[k] - avg;   // the loudest bands stay put; the match below keeps the rest honest
+            if (squash > 0.0f)
+            {
+                const float F = 10.0f * std::log10 (fastP[g][k] + 1.0e-12f);
+                if (F > v[3]) { const float d = clampf (-squash * 0.7f * (F - L[k]), -12.0f, 6.0f); t += d; sq += d; }
+            }
+            gain[g][k] += 0.5f * (clampf (t, -12.0f, 9.0f) - gain[g][k]);
+        }
+        if (g == 0) squashVis = sq / kB;
+    }
+    void process (float* l, float* r, int n, const Ctx& c) override
+    {
+        const float* v = c.v;
+        const bool ms = v[8] >= 0.5f, delta = v[9] >= 0.5f, on = v[0] > 0.0f;
+        const float trim = dbToGain (v[4]);
+        const float att = 0.002f * std::pow (250.0f, v[1] * 0.1f), rel = 0.02f * std::pow (100.0f, v[2] * 0.1f);
+        const float ca = smoothCoeff (att, fs), cr = smoothCoeff (rel, fs), fa = smoothCoeff (0.005f, fs), fr = smoothCoeff (0.06f, fs);
+        const float cm = smoothCoeff (0.3f, fs);   // loudness match, ~300 ms
+        float peak = 0.0f;
+        for (int i = 0; i < n; ++i)
+        {
+            const float xl = l[i], xr = r[i];
+            peak = std::max (peak, std::max (std::abs (xl), std::abs (xr)));
+            if (! on) { l[i] = delta ? 0.0f : xl * trim; r[i] = delta ? 0.0f : xr * trim; continue; }
+            float a = xl, b = xr;
+            if (ms) { a = 0.5f * (xl + xr); b = 0.5f * (xl - xr); }
+            const float dsig[2] = { ms ? a : 0.5f * (xl + xr), b };
+            for (int g = 0; g < (ms ? 2 : 1); ++g)
+                for (int k = 0; k < kB; ++k)
+                {
+                    const float y = det[g][k].process (dsig[g]), p = y * y;
+                    slowP[g][k] = fixDenorm (slowP[g][k] + (p > slowP[g][k] ? ca : cr) * (p - slowP[g][k]));
+                    fastP[g][k] = fixDenorm (fastP[g][k] + (p > fastP[g][k] ? fa : fr) * (p - fastP[g][k]));
+                }
+            if ((tick++ & 31) == 0)
+            {
+                update (0, v);
+                if (ms) update (1, v);
+                for (int ch = 0; ch < 2; ++ch)
+                    for (int k = 0; k < kB; ++k)
+                    {
+                        // keep the filter's state, change only its curve
+                        Biquad nb; nb.set (Biquad::Bell, fc[k], 1.1f, gain[ms ? ch : 0][k], fs);
+                        eq[ch][k].b0 = nb.b0; eq[ch][k].b1 = nb.b1; eq[ch][k].b2 = nb.b2; eq[ch][k].a1 = nb.a1; eq[ch][k].a2 = nb.a2;
+                    }
+            }
+            for (int k = 0; k < kB; ++k) { a = eq[0][k].process (a); b = eq[1][k].process (b); }
+            float yl = a, yr = b;
+            if (ms) { yl = a + b; yr = a - b; }
+            // keep the loudness: output RMS against input RMS (held through silence), as VALVE does
+            const float ei = xl * xl + xr * xr, eo = yl * yl + yr * yr;
+            pIn = fixDenorm (pIn + cm * (ei - pIn)); pOut = fixDenorm (pOut + cm * (eo - pOut));
+            if (pIn > 1.0e-8f && pOut > 1.0e-12f) match += 0.001f * (clampf (std::sqrt (pIn / pOut), 0.25f, 4.0f) - match);
+            yl *= match; yr *= match;
+            l[i] = (delta ? yl - xl : yl) * trim;
+            r[i] = (delta ? yr - xr : yr) * trim;
+        }
+        lvl = std::max (peak, lvl * 0.9f);
+        for (int k = 0; k < kB; ++k) vis[static_cast<size_t> (k)].store (on ? gain[0][k] : 0.0f, std::memory_order_relaxed);
+        vis[12].store (on ? squashVis : 0.0f, std::memory_order_relaxed);
+        vis[13].store (std::min (1.0f, lvl), std::memory_order_relaxed);
+    }
+};
+
+// ── 25. RIFT ──────────────────────────────────────────────────────────────────────────────────
+// A granular portal (after Output's Portal, made our own): the input goes through a DELAY (free or in
+// sync) into a 9 s buffer that FREEZE stops writing; grains are read from it at DENSITY, SIZE long, up to
+// SPRAY into the past, pitched by PITCH and kept to a SCALE, some REVERSED, panned within SPREAD. The
+// grains are filtered (LOW CUT / HIGH CUT), fed back into the delay (FEEDBACK) and sent into a SPACE.
+// The pad: SCATTER randomises pitch (within the scale), pan, size and position together; BLOOM feeds the
+// grains back on themselves and opens and lengthens the space.
+// vis[0] = grains sounding (0..1), vis[1] = output level, vis[2] = frozen.
+struct Rift final : Unit
+{
+    static constexpr int kGrains = 96;
+    struct Grain { bool on = false, rev = false; float start = 0, pos = 0, len = 1, ratio = 1, gl = 1, gr = 1; };
+    double fs = 48000.0;
+    std::vector<float> buf;
+    int mask = 0, w = 0;
+    Grain grains[kGrains];
+    sg::DelayLine dly[2];
+    float due = 0.0f, fb[2] {}, lvl = 0.0f;
+    Rng rng;
+    Biquad lc[2], hc[2];
+    Fdn space;
+    void prepare (double s, int) override
+    {
+        fs = s;
+        int size = 1; while (size < static_cast<int> (9.0 * fs)) size <<= 1;
+        buf.assign (static_cast<size_t> (size), 0.0f); mask = size - 1;
+        for (auto& d : dly) d.prepare (static_cast<int> (2.1 * fs));
+        space.prepare (fs);
+    }
+    void reset() override
+    {
+        std::fill (buf.begin(), buf.end(), 0.0f); w = 0; due = 0.0f; lvl = 0.0f;
+        for (auto& g : grains) g.on = false;
+        for (int c = 0; c < 2; ++c) { dly[c].clear(); lc[c].reset(); hc[c].reset(); fb[c] = 0.0f; }
+        space.reset();
+    }
+    float at (float p) const noexcept
+    {
+        const float fl = std::floor (p); const int i = static_cast<int> (fl); const float f = p - fl;
+        return buf[static_cast<size_t> (i & mask)] * (1.0f - f) + buf[static_cast<size_t> ((i + 1) & mask)] * f;
+    }
+    // the nearest semitone the scale allows (root C = 0)
+    static float toScale (float st, int scale) noexcept
+    {
+        static constexpr uint16_t masks[6] = { 0xFFF, 0xAB5, 0x5AD, 0x295, 0x001, 0x081 };   // chromatic, major, minor, pentatonic, octaves, fifths
+        const int base = static_cast<int> (std::lround (st));
+        for (int d = 0; d <= 12; ++d)
+            for (const int s : { base - d, base + d })
+                if (masks[scale] & (1u << (((s % 12) + 12) % 12))) return static_cast<float> (s);
+        return static_cast<float> (base);
+    }
+    void process (float* l, float* r, int n, const Ctx& c) override
+    {
+        const float* v = c.v;
+        const float fsf = static_cast<float> (fs), scatter = v[11] * 0.01f, bloom = v[12] * 0.01f;
+        const float len = v[0] * 0.001f * fsf, dens = v[1], spray = v[3] * 0.001f * fsf, revP = v[13] * 0.01f;
+        const float fbAmt = std::min (0.95f, v[4] * 0.01f + bloom * 0.35f), send = std::min (1.0f, v[7] * 0.01f + bloom * 0.5f);
+        const float spread = std::min (1.0f, v[6] * 0.01f + scatter * 0.4f);
+        const float delayS = v[10] >= 0.5f ? syncedSeconds (v[5], 10.0f, 2000.0f, c.bpm) : v[5] * 0.001f;
+        const float dSamp = clampf (delayS * fsf, 1.0f, 2.05f * fsf);
+        const int scale = juce::jlimit (0, 5, static_cast<int> (v[8] + 0.5f)), shape = juce::jlimit (0, 3, static_cast<int> (v[9] + 0.5f));
+        const bool frozen = v[16] >= 0.5f;
+        const float norm = 1.0f / std::sqrt (std::max (1.0f, dens * v[0] * 0.001f));
+        for (int ch = 0; ch < 2; ++ch) { lc[ch].set (Biquad::HP, v[14], 0.7071f, 0, fs); hc[ch].set (Biquad::LP, v[15], 0.7071f, 0, fs); }
+        space.set (0.85f, 1.2f + bloom * 7.0f, 7000.0f, 0.6f, false, 0.3f);
+        int sounding = 0;
+        float peak = 0.0f;
+        for (int i = 0; i < n; ++i)
+        {
+            dly[0].push (fixDenorm (l[i] + fb[0])); dly[1].push (fixDenorm (r[i] + fb[1]));
+            if (! frozen) { buf[static_cast<size_t> (w)] = 0.5f * (dly[0].read (dSamp) + dly[1].read (dSamp)); w = (w + 1) & mask; }
+            due -= dens / fsf;
+            if (due <= 0.0f)
+            {
+                due += 1.0f + rng.bi() * (0.15f + scatter * 0.6f);
+                for (auto& g : grains)
+                    if (! g.on)
+                    {
+                        const float gl = std::max (32.0f, len * (1.0f + rng.bi() * scatter * 0.6f));
+                        const float ratio = std::exp2 (toScale (v[2] + rng.bi() * scatter * 12.0f, scale) / 12.0f);
+                        const float back = std::min (static_cast<float> (mask) - 8.0f, gl * std::max (1.0f, ratio) + 4.0f + rng.next() * spray * (1.0f + scatter));
+                        g = { true, rng.next() < revP, static_cast<float> (w) - back, 0.0f, gl, ratio, 1, 1 };
+                        panGains (rng.bi() * spread, g.gl, g.gr);
+                        break;
+                    }
+            }
+            float y[2] = { 0.0f, 0.0f };
+            for (auto& g : grains)
+            {
+                if (! g.on) continue;
+                const float x = at (g.start + (g.rev ? g.len - g.pos : g.pos) * g.ratio) * Autochroma::envelope (shape, g.pos / g.len);
+                y[0] += x * g.gl; y[1] += x * g.gr;
+                if ((g.pos += 1.0f) >= g.len) g.on = false;
+            }
+            for (int ch = 0; ch < 2; ++ch)
+            {
+                y[ch] = hc[ch].process (lc[ch].process (y[ch] * norm));
+                fb[ch] = softClip (y[ch] * fbAmt);
+            }
+            float sl, sr;
+            space.process (y[0], y[1], sl, sr);
+            l[i] = y[0] * (1.0f - 0.3f * send) + send * sl;
+            r[i] = y[1] * (1.0f - 0.3f * send) + send * sr;
+            peak = std::max (peak, std::max (std::abs (l[i]), std::abs (r[i])));
+        }
+        for (const auto& g : grains) sounding += g.on ? 1 : 0;
+        lvl = std::max (peak, lvl * 0.9f);
+        vis[0].store (static_cast<float> (sounding) / kGrains, std::memory_order_relaxed);
+        vis[1].store (std::min (1.0f, lvl), std::memory_order_relaxed);
+        vis[2].store (frozen ? 1.0f : 0.0f, std::memory_order_relaxed);
+    }
+};
 } // namespace
 
 static std::unique_ptr<Unit> createUnit (int type)
@@ -1376,7 +1816,6 @@ static std::unique_ptr<Unit> createUnit (int type)
     switch (type)
     {
         case fxdefs::Psdelay:    return std::make_unique<PsDelay>();
-        case fxdefs::Revocean:   return std::make_unique<RevOcean>();
         case fxdefs::Tapeecho:   return std::make_unique<EchoDelay>();
         case fxdefs::Convolver:  return std::make_unique<Convolver>();
         case fxdefs::Tuba:       return std::make_unique<Tuba>();
@@ -1392,11 +1831,13 @@ static std::unique_ptr<Unit> createUnit (int type)
         case fxdefs::Proq:       return std::make_unique<ProQ>();
         case fxdefs::Filter:     return std::make_unique<Filter>();
         case fxdefs::Autochroma: return std::make_unique<Autochroma>();
-        case fxdefs::Ambient:    return std::make_unique<Ambient>();
         case fxdefs::Valleyverb: return std::make_unique<ValleyVerb>();
         case fxdefs::Imager:     return std::make_unique<Imager>();
         case fxdefs::Nudestort:  return std::make_unique<Nudestort>();
         case fxdefs::Parlour:    return std::make_unique<Parlour>();
+        case fxdefs::Carve:      return std::make_unique<Carve>();
+        case fxdefs::Poise:      return std::make_unique<Poise>();
+        case fxdefs::Rift:       return std::make_unique<Rift>();
         default:                 return std::make_unique<Bypass>();
     }
 }

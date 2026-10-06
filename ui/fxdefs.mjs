@@ -1,12 +1,12 @@
 // The single source of truth for the FX rack (docs/fx/FX_PROMPTS.md).
 // gen.mjs embeds it in the page; tools/gen-fx-header.mjs writes src/plugin/FxDefs.h from it,
 // so the read-outs and the DSP ranges cannot drift. Each slot parameter is normalised 0..1:
-//   p1..p8  the knobs (two rows of four)   p9..p11 stepped selectors   p12..p28 extra (display-driven)
+//   p1..p8  the knobs (two rows of four)   p9..p11 stepped selectors   p12..p36 extra (display-driven)
 // A continuous param: { p, label, lo, hi, def, curve: 'lin'|'log', unit }   (def in real units)
 // A stepped param:    { p, label, steps: [...], def: index }
 // sync: { p, divs } - while stepped param `p` is on (index 1) the knob picks a note division.
 
-export const NP = 28;
+export const NP = 96;
 export const DIVS = ['1/32', '1/16T', '1/32D', '1/16', '1/8T', '1/16D', '1/8', '1/4T', '1/8D', '1/4', '1/2T', '1/4D', '1/2', '1/1T', '1/2D', '1/1', '2/1', '4/1'];
 // length of each division in quarter notes
 export const DIV_BEATS = [0.125, 1 / 6, 0.1875, 0.25, 1 / 3, 0.375, 0.5, 2 / 3, 0.75, 1, 4 / 3, 1.5, 2, 8 / 3, 3, 4, 8, 16];
@@ -15,6 +15,32 @@ const PITCHES = ['-12', '-7', '-5', '0', '+5', '+7', '+12', '+19', '+24'];
 export const PQ_BANDS = [['p12', 'p13', 'p14'], ['p15', 'p16', 'p17'], ['p18', 'p19', 'p20'], ['p21', 'p22', 'p23'], ['p24', 'p25', 'p26'], ['p1', 'p2', 'p3']];
 export const PQ_SHAPE = ['p5', 'p6', 'p7', 'p8', 'p10', 'p11'];
 export const PQ_SHAPES = ['BELL', 'LOW SHELF', 'HIGH SHELF', 'LOW CUT 12', 'LOW CUT 24', 'LOW CUT 48', 'HIGH CUT 12', 'HIGH CUT 24', 'HIGH CUT 48', 'NOTCH', 'BAND PASS'];
+
+// CARVE (ShaperBox 3's way of working): eleven shapers in a chain, each with its own 16-point wave,
+// rate, trigger, band and mix. The waves are not host parameters: they live in the slot's extra data
+// (EXT, saved with the state), shaper k's points at ext[k * 17 + 0..15] and its curve at ext[k * 17 + 16].
+// Everything else is a host parameter: shaper k's ON / MIX / RATE / TRIGGER / BAND are p(1 + 5k)..p(5 + 5k).
+export const CARVE_SHAPERS = ['pitch', 'reverb', 'time', 'drive', 'noise', 'liquid', 'filter', 'crush', 'volume', 'pan', 'width'];
+export const CARVE_RATES = ['1/32', '1/16', '1/8', '1/4', '1/2', '1 BAR', '2 BARS', '4 BARS', '8 BARS'];
+export const CARVE_BEATS = [0.125, 0.25, 0.5, 1, 2, 4, 8, 16, 32];
+export const CARVE_TRIGGERS = ['SYNC', 'NOTE', 'TRANSIENT', 'FOLLOW'];
+export const CARVE_CURVES = ['STEPS', 'LINES', 'SMOOTH'];
+const CARVE_PUMP = [0, 0.32, 0.56, 0.72, 0.82, 0.89, 0.93, 0.96, 0.98, 1, 1, 1, 1, 1, 1, 1];
+const ramp = Array.from({ length: 16 }, (_, i) => i / 15), sine = Array.from({ length: 16 }, (_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / 16));
+const tri = Array.from({ length: 16 }, (_, i) => 1 - Math.abs(i - 8) / 8);
+// each shaper's wave and curve when CARVE is loaded, and what its wave means (shown under the editor)
+export const CARVE_WAVES = {
+  pitch: [[0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 1, 1, 1, 1, 0.7917, 0.7917, 0.7917, 0.7917], 0], reverb: [ramp, 2], time: [[1, 1, 1, 1, 1, 1, 1, 1, 0.5, 0.5, 0.5, 0.5, 1, 1, 0.75, 0.75], 0],
+  drive: [sine, 2], noise: [[1, 0, 0, 0, 0.6, 0, 0, 0, 1, 0, 0, 0, 0.6, 0, 0, 0], 0], liquid: [tri, 2], filter: [CARVE_PUMP, 2],
+  crush: [[1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0], 0], volume: [CARVE_PUMP, 2], pan: [sine, 2], width: [tri, 2] };
+export const CARVE_HINTS = {
+  pitch: 'top +range · middle unchanged · bottom -range', reverb: 'how much of the space you hear', time: 'shift: top live, bottom furthest back · other modes: how much of it',
+  drive: 'how hard it drives', noise: 'how loud the noise is', liquid: 'where the sweep sits', filter: 'cutoff between LOW and HIGH',
+  crush: 'how crushed', volume: 'top full volume · bottom ducked by DEPTH', pan: 'top right · middle centre · bottom left', width: 'top wider · middle unchanged · bottom narrower' };
+export const CARVE_EXT = CARVE_SHAPERS.flatMap((k) => [...CARVE_WAVES[k][0], CARVE_WAVES[k][1]]);
+// FX modulation (right-click any FX control): the layer's own sources, in src/plugin/FxRack.h order
+export const FX_MOD_SOURCES = ['LFO 1', 'LFO 2', 'ENV 1', 'ENV 2', 'VELOCITY', 'NOTE', 'MOD WHEEL', 'AFTERTOUCH', 'EXPRESSION', 'RIBBON', 'BENDER', 'INPUT', 'RANDOM'];
+export const FX_EXT = 192;   // extra (non-parameter) values per slot
 
 const k = (p, label, lo, hi, def, curve, unit) => ({ p, label, lo, hi, def, curve: curve || 'lin', unit: unit || '' });
 const s = (p, label, steps, def) => ({ p, label, steps, def: def || 0 });
@@ -29,10 +55,6 @@ export const FX = [
       pct('p5', 'PITCH SHIFT', 70), pct('p6', 'SPRAY', 10), hz('p7', 'HP FREQ', 20, 2000, 120), hz('p8', 'LP FREQ', 1000, 20000, 9000),
       s('p9', 'MODE', ['OCT. UP', 'OCT. DOWN', 'FIFTH', 'OCT. UP+DOWN', 'DETUNE']), s('p10', 'TIME', ['FREE', 'SYNC'])],
     sync: { knob: 'p1', p: 'p10', def: 9 } },
-  { id: 'revocean', blurb: 'A deep, moving reverb tail you can freeze', name: 'UNDERTOW', group: 'EXPERIMENTAL', mix: 30, display: 'tail',
-    params: [pct('p1', 'SIZE', 60), k('p2', 'DECAY', 0.3, 20, 3.5, 'log', 's'), hz('p3', 'BRIGHTNESS', 1500, 18000, 7000), pct('p4', 'MOTION', 40),
-      ms('p5', 'PRE-DELAY', 0, 250, 20, 'lin'), pct('p6', 'WIDTH', 100), pct('p7', 'DUCKING', 0), hz('p8', 'LOW CUT', 20, 1000, 80),
-      s('p9', 'MODE', ['ABYSS', 'TIDE', 'FOAM']), s('p10', 'FREEZE', ['FREEZE OFF', 'FREEZE ON'])] },
   { id: 'tapeecho', blurb: 'Clean stereo or ping-pong delay', name: 'ECHO DELAY', group: 'TIME', mix: 30, display: 'echo',
     params: [k('p1', 'TIME', 10, 2000, 375, 'log', 'ms'), pct('p2', 'FEEDBACK', 40), pct('p3', 'WIDTH', 100), hz('p4', 'LOW CUT', 20, 2000, 80),
       hz('p5', 'HIGH CUT', 1000, 20000, 12000), pct('p6', 'DUCKING', 0), pct('p7', 'MOD', 0), pct('p8', 'DRIVE', 0),
@@ -102,11 +124,6 @@ export const FX = [
     params: [ms('p1', 'SIZE', 20, 500, 120), k('p2', 'DENSITY', 1, 40, 12, 'log', '/s'), k('p3', 'SPRAY', 0, 1500, 300, 'lin', 'ms'), pct('p4', 'FEEDBACK', 20),
       pct('p5', 'LEVEL', 80), pct('p6', 'REVERSE', 0), pct('p7', 'SPREAD', 60), hz('p8', 'TONE', 1000, 20000, 12000),
       s('p9', 'PITCH', PITCHES, 6), s('p10', 'SHAPE', ['SMOOTH', 'TRIANGLE', 'PERC', 'GATE']), k('p11', 'FINE', -100, 100, 0, 'lin', 'ct')] },
-  { id: 'ambient', blurb: 'Six atmospheres on one TONE × SPACE pad', name: 'HALO', group: 'EXPERIMENTAL', mix: 40, display: 'xy',
-    params: [pct('p1', 'SIZE', 60), k('p2', 'DECAY', 0.5, 30, 6, 'log', 's'), pct('p3', 'WIDTH', 100), pct('p4', 'MOD', 35),
-      ms('p5', 'PRE-DELAY', 0, 250, 30, 'lin'), pct('p6', 'DUCKING', 0), hz('p7', 'LOW CUT', 20, 1000, 100), hz('p8', 'HIGH CUT', 1000, 20000, 12000),
-      s('p9', 'MODE', ['SWELL', 'WEAVE', 'SHIMMER', 'OCTAVES', 'ARTEFACT', 'DROWNED']),
-      pct('p12', 'TONE', 50), pct('p13', 'SPACE', 50)] },
   // SPACES: algorithmic reverb, a space (MODE) and a character (COLOR)
   { id: 'valleyverb', blurb: 'Rooms to cathedrals, aged to clean', name: 'SPACES', group: 'TIME', mix: 30, display: 'echogram',
     params: [ms('p1', 'PREDELAY', 0, 250, 20, 'lin'), k('p2', 'DECAY', 0.2, 20, 2.5, 'log', 's'), pct('p3', 'SIZE', 70), pct('p4', 'ATTACK', 40),
@@ -129,7 +146,51 @@ export const FX = [
   { id: 'parlour', blurb: 'A warm, driven room with plate shine', name: 'PARLOUR', group: 'TIME', mix: 25, display: 'plate',
     params: [db('p1', 'DRIVE', 24), hz('p2', 'HPF', 20, 100, 40), pct('p3', 'STEREO', 70), ms('p4', 'PRE-DELAY', 0, 250, 10, 'lin'),
       k('p5', 'DECAY', 0.1, 6, 1.6, 'log', 's'), hz('p6', 'LOW FREQ', 20, 2000, 200), db('p7', 'LOW', 20), hz('p8', 'HIGH FREQ', 200, 20000, 6000),
-      db('p12', 'HIGH', 20)] }
+      db('p12', 'HIGH', 20)] },
+  // CARVE (user, 2026-10-05: ShaperBox 3 recreated in our own style; the same day: "everything that the
+  // shaper box has ... all those modes"). Eleven shapers in ShaperBox's chain order, each switched on by
+  // itself with its own wave (EXT), rate, trigger (SYNC to the host, NOTE restarts it on each note, TRANSIENT
+  // restarts it on each hit, FOLLOW reads it by the input level), band and mix, and its own settings. Only
+  // VOLUME starts on, at DEPTH 0, so CARVE starts level.
+  { id: 'carve', blurb: 'Eleven shapers, each drawn beat by beat', name: 'CARVE', group: 'EXPERIMENTAL', mix: 100, display: 'carve',
+    ext: CARVE_EXT,
+    params: [
+      ...CARVE_SHAPERS.flatMap((name, k) => {
+        const p = (j) => 'p' + (1 + 5 * k + j), N = name.toUpperCase() + ' ';
+        const rate = { pitch: 5, reverb: 4, time: 5, drive: 3, noise: 3, liquid: 6, filter: 5, crush: 3, volume: 3, pan: 4, width: 5 }[name];
+        return [s(p(0), N + 'ON', ['OFF', 'ON'], name === 'volume' ? 1 : 0), pct(p(1), N + 'MIX', 100), s(p(2), N + 'RATE', CARVE_RATES, rate),
+          s(p(3), N + 'TRIGGER', CARVE_TRIGGERS), s(p(4), N + 'BAND', ['FULL', 'LOW', 'MID', 'HIGH'])];
+      }),
+      k('p56', 'RANGE', 0, 24, 12, 'lin', 'st'), s('p57', 'STEPS', ['SMOOTH', 'SEMITONES'], 1),
+      pct('p58', 'SIZE', 60), k('p59', 'DECAY', 0.3, 12, 2.5, 'log', 's'), pct('p60', 'TONE', 0, -100),
+      s('p61', 'MODE', ['SHIFT', 'HALF-TIME', 'REVERSE', 'TAPE STOP']), pct('p62', 'RANGE', 50), s('p63', 'RATIO', ['1.5x', '2x', '3x', '4x'], 1),
+      k('p64', 'AMOUNT', 0, 36, 12, 'lin', 'dB'), s('p65', 'MODE', ['SMOOTH', 'HARD', 'FOLD', 'TUBE']), pct('p66', 'TONE', 0, -100),
+      k('p67', 'LEVEL', -48, 0, -18, 'lin', 'dB'), s('p68', 'TYPE', ['WHITE', 'PINK', 'HISS', 'VINYL', 'CRACKLE', 'RUMBLE']), s('p69', 'MODE', ['STATIC', 'FOLLOW', 'DUCK']), hz('p70', 'COLOR', 200, 20000, 12000),
+      s('p71', 'MODE', ['FLANGER', 'PHASER', 'CHORUS']), pct('p72', 'DEPTH', 60), pct('p73', 'FEEDBACK', 40, -95), pct('p74', 'STEREO', 30),
+      s('p75', 'TYPE', ['LP 12', 'LP 24', 'HP 12', 'HP 24', 'BAND PASS', 'NOTCH', 'PEAK']), hz('p76', 'LOW', 20, 20000, 200), hz('p77', 'HIGH', 20, 20000, 12000), pct('p78', 'RESONANCE', 25), pct('p79', 'DRIVE', 0),
+      k('p80', 'BITS', 1, 16, 6, 'lin', 'bit'), hz('p81', 'RESAMPLE', 200, 48000, 6000), pct('p82', 'JITTER', 0),
+      pct('p83', 'DEPTH', 0), pct('p84', 'DEPTH', 50), pct('p85', 'RANGE', 50),
+      hz('p86', 'LOW XOVER', 40, 1000, 200), hz('p87', 'HIGH XOVER', 1000, 12000, 3000), pct('p88', 'SENSITIVITY', 50), db('p89', 'OUTPUT', 12)] },
+  // POISE (user, 2026-10-05: a near-identical remake of oeksound bloom): an adaptive tone shaper. Twelve
+  // bands listen to the sound and lean it towards a balanced target (a little fuller at the ends than pink),
+  // keeping its loudness; AMOUNT is how hard (0-10), past 7 it also squashes each band's dynamics above
+  // SQUASH CAL. The four TONE handles move the target, not the sound. AMOUNT 0 = untouched.
+  { id: 'poise', blurb: 'Evens out the tone as the sound changes', name: 'POISE', group: 'EXPERIMENTAL', mix: 100, display: 'poise',
+    params: [k('p1', 'AMOUNT', 0, 10, 0, 'lin', ''), k('p2', 'ATTACK', 0, 10, 5, 'lin', ''), k('p3', 'RELEASE', 0, 10, 5, 'lin', ''),
+      k('p4', 'SQUASH CAL', -60, 0, -30, 'lin', 'dB'), db('p5', 'WET TRIM', 12),
+      s('p9', 'CHANNELS', ['STEREO', 'MID / SIDE']), s('p10', 'DELTA', ['DELTA OFF', 'DELTA ON']),
+      hz('p12', 'LOW FREQ', 30, 300, 80), db('p13', 'LOW', 6), hz('p14', 'LOW MID FREQ', 150, 1500, 400), db('p15', 'LOW MID', 6),
+      hz('p16', 'HIGH MID FREQ', 1000, 8000, 2500), db('p17', 'HIGH MID', 6), hz('p18', 'HIGH FREQ', 4000, 18000, 10000), db('p19', 'HIGH', 6)] },
+  // RIFT (user, 2026-10-05: Output's Portal, made better): grains from a delayed, fed-back buffer, pitched
+  // to a scale, into a space. The display is the pad: SCATTER (across) randomises pitch, pan, size and
+  // position; BLOOM (up) feeds the grains back on themselves and opens the space.
+  { id: 'rift', blurb: 'Grains pulled through a pitched portal', name: 'RIFT', group: 'EXPERIMENTAL', mix: 50, display: 'rift',
+    params: [ms('p1', 'SIZE', 10, 1000, 140), k('p2', 'DENSITY', 1, 100, 18, 'log', '/s'), k('p3', 'PITCH', -24, 24, 0, 'lin', 'st'), k('p4', 'SPRAY', 0, 2000, 250, 'lin', 'ms'),
+      pct('p5', 'FEEDBACK', 25), ms('p6', 'DELAY', 10, 2000, 250), pct('p7', 'SPREAD', 60), pct('p8', 'SPACE', 30),
+      s('p9', 'SCALE', ['CHROMATIC', 'MAJOR', 'MINOR', 'PENTATONIC', 'OCTAVES', 'FIFTHS']), s('p10', 'SHAPE', ['SMOOTH', 'TRIANGLE', 'PERC', 'GATE']),
+      s('p11', 'TIME', ['FREE', 'SYNC']), pct('p12', 'SCATTER', 35), pct('p13', 'BLOOM', 40), pct('p14', 'REVERSE', 20),
+      hz('p15', 'LOW CUT', 20, 2000, 80), hz('p16', 'HIGH CUT', 1000, 20000, 12000), s('p17', 'FREEZE', ['FLOW', 'FROZEN'])],
+    sync: { knob: 'p6', p: 'p11', def: 6 } }
 ];
 export const FX_GROUPS = ['TIME', 'DISTORTION', 'DYNAMICS', 'MODULATION', 'FILTER / EQ', 'EXPERIMENTAL'];
 

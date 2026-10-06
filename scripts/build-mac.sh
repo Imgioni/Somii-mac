@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds 002 by SPKR on macOS (universal: Apple Silicon + Intel), Release.
+# Builds Somii on macOS (universal: Apple Silicon + Intel), Release.
 # Extra arguments go to "cmake --build", e.g.  scripts/build-mac.sh --target SGTests
 set -euo pipefail
 cd "$(dirname "$0")/.."

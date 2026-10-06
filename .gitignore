@@ -25,3 +25,6 @@ docs/reference/
 docs/screenshots/
 docs/*.pdf
 *.pdf
+
+# local patch backups made during preset recovery (personal data, not source)
+recovery/

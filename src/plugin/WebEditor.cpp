@@ -139,19 +139,29 @@ void GeminusWebSession::buildRelays()
 // ── patch files ──────────────────────────────────────────────────────────────────────────────
 juce::File GeminusWebSession::defaultPatchFolder()
 {
-    // Documents/002/Patches (renamed from Geminus, 2026-09-19). The first time it is needed, patches
-    // saved under the old name are copied across; the old folder is left as it was.
+    // Merge missing legacy files even when Somii already exists: the earlier rename
+    // copied only loose patches and skipped bank folders, their covers and sample files.
+    // Preserve relative paths and never overwrite either an old or a current file.
     const auto docs = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory);
-    auto f = docs.getChildFile ("002").getChildFile ("Patches");
-    const auto old = docs.getChildFile ("Geminus").getChildFile ("Patches");
-    if (! f.isDirectory() && old.isDirectory())
-    {
-        f.createDirectory();
-        for (const auto& p : old.findChildFiles (juce::File::findFiles, false, "*.gpatch"))
-            p.copyFileTo (f.getChildFile (p.getFileName()));
-    }
+    auto f = docs.getChildFile ("Somii").getChildFile ("Patches");
     f.createDirectory();
-    return f;
+    juce::File migrationFallback;
+    for (const auto* name : { "002", "Geminus" })
+    {
+        const auto old = docs.getChildFile (name).getChildFile ("Patches");
+        if (! old.isDirectory()) continue;
+        for (const auto& p : old.findChildFiles (juce::File::findFiles, true))
+        {
+            const auto target = f.getChildFile (p.getRelativePathFrom (old));
+            if (target.exists()) continue;
+            const bool copied = target.getParentDirectory().createDirectory().wasOk()
+                                && p.copyFileTo (target);
+            // A protected Documents folder must not turn an intact old library
+            // into an apparently empty new one. Keep the original library usable.
+            if (! copied && migrationFallback == juce::File {}) migrationFallback = old;
+        }
+    }
+    return migrationFallback != juce::File {} ? migrationFallback : f;
 }
 
 // A patch's TYPE travels inside the file (state property "patchType"), so a patch keeps its type
@@ -452,6 +462,20 @@ juce::WebBrowserComponent::Options GeminusWebSession::makeOptions()
         proc.loadCustomSample (juce::jlimit (0, 1, argInt (a, 0)), nullptr, 0, {});
         done (juce::var (true));
     });
+    // fxExt(slot, first index, [values]): a slot's extra values (CARVE's waves) · fxMod(slot, target, source,
+    // amount): one modulation route of an FX control (target kNP = DRY / WET), amount -1..1, 0 removes it
+    opts = opts.withNativeFunction ("fxExt", [this] (const Args& a, Done done)
+    {
+        const int slot = argInt (a, 0, -1), first = argInt (a, 1, 0);
+        if (a.size() > 2 && a[2].isArray())
+            for (int i = 0; i < a[2].size(); ++i) proc.getFxRack().setExt (slot, first + i, static_cast<float> (static_cast<double> (a[2][i])));
+        done (juce::var (true));
+    });
+    opts = opts.withNativeFunction ("fxMod", [this] (const Args& a, Done done)
+    {
+        proc.getFxRack().setMod (argInt (a, 0, -1), argInt (a, 1, -1), argInt (a, 2, -1), a.size() > 3 ? static_cast<float> (static_cast<double> (a[3])) : 0.0f);
+        done (juce::var (true));
+    });
     opts = opts.withNativeFunction ("fxDefaultIr", [this] (const Args&, Done done)
     {
         proc.getFxRack().loadImpulse (nullptr, 0, {});
@@ -582,7 +606,7 @@ juce::WebBrowserComponent::Options GeminusWebSession::makeOptions()
 
     opts = opts.withNativeFunction ("patchSaveAs", [this] (const Args&, Done done)
     {
-        patchChooser = std::make_unique<juce::FileChooser> ("Save 002 patch",
+        patchChooser = std::make_unique<juce::FileChooser> ("Save Somii patch",
             defaultPatchFolder().getChildFile (juce::File::createLegalFileName (patchName()) + ".gpatch"), "*.gpatch");
         patchChooser->launchAsync (juce::FileBrowserComponent::saveMode
                                    | juce::FileBrowserComponent::canSelectFiles
@@ -605,7 +629,7 @@ juce::WebBrowserComponent::Options GeminusWebSession::makeOptions()
 
     opts = opts.withNativeFunction ("patchOpen", [this] (const Args&, Done done)
     {
-        patchChooser = std::make_unique<juce::FileChooser> ("Open 002 patch", defaultPatchFolder(), "*.gpatch");
+        patchChooser = std::make_unique<juce::FileChooser> ("Open Somii patch", defaultPatchFolder(), "*.gpatch");
         patchChooser->launchAsync (juce::FileBrowserComponent::openMode
                                    | juce::FileBrowserComponent::canSelectFiles,
             [this, done] (const juce::FileChooser& chooser)
@@ -620,7 +644,7 @@ juce::WebBrowserComponent::Options GeminusWebSession::makeOptions()
 
     opts = opts.withNativeFunction ("patchChooseFolder", [this] (const Args&, Done done)
     {
-        patchChooser = std::make_unique<juce::FileChooser> ("Choose 002 patch folder", defaultPatchFolder(), juce::String());
+        patchChooser = std::make_unique<juce::FileChooser> ("Choose Somii patch folder", defaultPatchFolder(), juce::String());
         patchChooser->launchAsync (juce::FileBrowserComponent::openMode
                                    | juce::FileBrowserComponent::canSelectDirectories,
             [this, done] (const juce::FileChooser& chooser)
@@ -785,7 +809,7 @@ void GeminusWebSession::timerCallback()
     auto& rack = proc.getFxRack();
     juce::Array<juce::var> fxVis;
     for (int s = 0; s < fx::Rack::kSlots; ++s)
-        for (int i = 0; i < 8; ++i) fxVis.add (rack.getVis (s, i));
+        for (int i = 0; i < fx::Unit::kVis; ++i) fxVis.add (rack.getVis (s, i));
     o->setProperty ("fx", fxVis);
     // the analyser (48 bands per slot, dB) and each slot's output peak, for the displays and the activity light
     juce::Array<juce::var> spec, lvl;
@@ -798,6 +822,30 @@ void GeminusWebSession::timerCallback()
     }
     o->setProperty ("fxSpec", spec);
     o->setProperty ("fxLevel", lvl);
+    // the slots' extra values and modulation routes, when the rack changed them (state load, swap, new type)
+    if (rack.getDataVersion() != sentFxData)
+    {
+        sentFxData = rack.getDataVersion();
+        juce::Array<juce::var> ext, mods;
+        for (int s = 0; s < fx::Rack::kSlots; ++s)
+        {
+            juce::Array<juce::var> e;
+            for (int i = 0; i < fxdefs::kExt; ++i) e.add (rack.getExt (s, i));
+            ext.add (e);
+            for (int tg = 0; tg < fx::Rack::kTargets; ++tg)
+                for (int k = 0; k < fxdefs::kModSources; ++k)
+                    if (const float m = rack.getMod (s, tg, k); m != 0.0f) mods.add (juce::Array<juce::var> { s, tg, k, m });
+        }
+        o->setProperty ("fxExt", ext);
+        o->setProperty ("fxMods", mods);
+    }
+    // where each modulated control is pushed to now (slot, target, offset)
+    juce::Array<juce::var> modNow;
+    for (int s = 0; s < fx::Rack::kSlots; ++s)
+        if (rack.hasMods (s))
+            for (int tg = 0; tg < fx::Rack::kTargets; ++tg)
+                if (const float m = rack.getModNow (s, tg); m != 0.0f) modNow.add (juce::Array<juce::var> { s, tg, std::round (m * 1000.0f) / 1000.0f });
+    o->setProperty ("fxModNow", modNow);
     if (rack.getImpulseVersion() != sentIrVersion)
     {
         sentIrVersion = rack.getImpulseVersion();
@@ -888,6 +936,7 @@ void GeminusWebSession::reloadUi()
     sentSeqVersion = ~0u;      // a fresh page needs the sequences and the patch name again
     sentPatchName = {};
     sentIrVersion = -1;
+    sentFxData = -1;
     pageLoaded = false;
    #if GEMINUS_DEV_UI
     const auto page = juce::File (GEMINUS_UI_DIR).getChildFile ("index.html");
@@ -908,6 +957,9 @@ void GeminusWebSession::adoptPageSize (int w, int h)
     pageW = w;
     pageH = h;
     fitPending = true;
+    // the window takes the page's real proportions too: refitting only the zoom left a strip of the
+    // window's background under the panel (a black bar) whenever the layout's size had drifted
+    if (onLayoutChanged) onLayoutChanged();
 }
 
 void GeminusWebSession::setDesktopLayout (bool shouldUseDesktopLayout)

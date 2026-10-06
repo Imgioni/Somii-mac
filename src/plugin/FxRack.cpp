@@ -88,6 +88,64 @@ void Rack::resetToDefaults (Slot& s, int type)
     for (int i = 0; i < fxdefs::kNP; ++i)
         set (s.pParam[static_cast<size_t> (i)], fxdefs::kParams[type][i].def);
     set (s.mixParam, fxdefs::kDefaultMix[type]);
+    // a new effect: its own extra values, and no modulation (the old routes meant other controls)
+    setExtDefaults (s, type);
+    for (auto& m : s.mod) m.store (0.0f, std::memory_order_relaxed);
+    for (auto& m : s.modNow) m.store (0.0f, std::memory_order_relaxed);
+    countMods (s);
+    ++dataVersion;
+}
+
+void Rack::setExtDefaults (Slot& s, int type) noexcept
+{
+    const float* d = fxdefs::kExtDefaults[type];
+    for (int i = 0; i < fxdefs::kExt; ++i)
+        s.ext[static_cast<size_t> (i)].store (d != nullptr && i < fxdefs::kExtLen[type] ? d[i] : 0.0f, std::memory_order_relaxed);
+    s.extSet = true;
+}
+
+void Rack::countMods (Slot& s) noexcept
+{
+    int n = 0;
+    for (const auto& m : s.mod) n += m.load (std::memory_order_relaxed) != 0.0f ? 1 : 0;
+    s.mods.store (n);
+}
+
+void Rack::setExt (int slot, int i, float v) noexcept
+{
+    if (slot < 0 || slot >= kSlots || i < 0 || i >= fxdefs::kExt || ! std::isfinite (v)) return;
+    slots[static_cast<size_t> (slot)].ext[static_cast<size_t> (i)].store (v, std::memory_order_relaxed);
+}
+
+float Rack::getExt (int slot, int i) const noexcept
+{
+    if (slot < 0 || slot >= kSlots || i < 0 || i >= fxdefs::kExt) return 0.0f;
+    return slots[static_cast<size_t> (slot)].ext[static_cast<size_t> (i)].load (std::memory_order_relaxed);
+}
+
+void Rack::setMod (int slot, int target, int src, float amount) noexcept
+{
+    if (slot < 0 || slot >= kSlots || target < 0 || target >= kTargets || src < 0 || src >= fxdefs::kModSources || ! std::isfinite (amount)) return;
+    auto& s = slots[static_cast<size_t> (slot)];
+    s.mod[static_cast<size_t> (target * fxdefs::kModSources + src)].store (juce::jlimit (-1.0f, 1.0f, amount), std::memory_order_relaxed);
+    countMods (s);
+}
+
+float Rack::getMod (int slot, int target, int src) const noexcept
+{
+    if (slot < 0 || slot >= kSlots || target < 0 || target >= kTargets || src < 0 || src >= fxdefs::kModSources) return 0.0f;
+    return slots[static_cast<size_t> (slot)].mod[static_cast<size_t> (target * fxdefs::kModSources + src)].load (std::memory_order_relaxed);
+}
+
+float Rack::getModNow (int slot, int target) const noexcept
+{
+    if (slot < 0 || slot >= kSlots || target < 0 || target >= kTargets) return 0.0f;
+    return slots[static_cast<size_t> (slot)].modNow[static_cast<size_t> (target)].load (std::memory_order_relaxed);
+}
+
+bool Rack::hasMods (int slot) const noexcept
+{
+    return slot >= 0 && slot < kSlots && slots[static_cast<size_t> (slot)].mods.load (std::memory_order_relaxed) > 0;
 }
 
 void Rack::swapSlots (int a, int b)
@@ -108,6 +166,13 @@ void Rack::swapSlots (int a, int b)
     swap (x.mixParam, y.mixParam);
     swap (x.layerParam, y.layerParam);
     for (size_t i = 0; i < fxdefs::kNP; ++i) swap (x.pParam[i], y.pParam[i]);
+    // the extra values and the modulation routes travel with their effect
+    auto trade = [] (auto& p, auto& q) { for (size_t i = 0; i < p.size(); ++i) { const float a = p[i].load(); p[i].store (q[i].load()); q[i].store (a); } };
+    trade (x.ext, y.ext);
+    trade (x.mod, y.mod);
+    std::swap (x.extSet, y.extSet);
+    countMods (x); countMods (y);
+    ++dataVersion;
 }
 
 void Rack::buildSlot (Slot& s, int type, bool resetParams)
@@ -117,6 +182,7 @@ void Rack::buildSlot (Slot& s, int type, bool resetParams)
         if (s.pending[l].load() != nullptr || s.retired[l].load() != nullptr) return;
 
     if (resetParams && ! s.noReset && s.builtType >= 0) resetToDefaults (s, type);
+    else if (! s.extSet) { setExtDefaults (s, type); ++dataVersion; }   // a state that carried none
     s.noReset = false;
     s.builtType = type;
 
@@ -156,31 +222,69 @@ void Rack::messageTick (bool resetParams)
     irChanged = false;
 }
 
-void Rack::process (float* uL, float* uR, float* lL, float* lR, int n, double bpm) noexcept
+void Rack::process (float* uL, float* uR, float* lL, float* lR, int n, double bpm, double ppq, bool playing, const LayerIn* in) noexcept
 {
-    for (int off = 0; off < n; off += maxBlock)   // scratch is sized by prepare(); split oversized blocks
-        processChunk (uL + off, uR + off, lL + off, lR + off, std::min (maxBlock, n - off), bpm);
+    if (in != nullptr)
+        for (size_t L = 0; L < 2; ++L)
+        {
+            std::copy (in[L].src, in[L].src + kLayerSources, srcNext[L].begin());
+            noteOns[L] = in[L].noteOns;
+        }
+    else srcNext = srcPrev;
+    // with modulation in use, the block is cut into 64-sample pieces and the sources move between them
+    bool modded = false;
+    for (const auto& s : slots) modded = modded || s.mods.load (std::memory_order_relaxed) > 0;
+    const int step = modded ? std::min (maxBlock, 64) : maxBlock;
+    for (int off = 0; off < n; off += step)   // scratch is sized by prepare(); split oversized blocks
+    {
+        const int len = std::min (step, n - off);
+        const float t = static_cast<float> (off + len) / static_cast<float> (std::max (1, n));
+        for (size_t L = 0; L < 2; ++L)
+            for (size_t i = 0; i < kLayerSources; ++i) srcNow[L][i] = srcPrev[L][i] + (srcNext[L][i] - srcPrev[L][i]) * t;
+        processChunk (uL + off, uR + off, lL + off, lR + off, len, bpm, ppq + off * bpm / (60.0 * fs), playing);
+    }
+    srcPrev = srcNext;
 }
 
-void Rack::processChunk (float* uL, float* uR, float* lL, float* lR, int n, double bpm) noexcept
+void Rack::processChunk (float* uL, float* uR, float* lL, float* lR, int n, double bpm, double ppq, bool playing) noexcept
 {
     const bool parallel = mode != nullptr && mode->load() >= 0.5f;
     float* io[2][2] = { { uL, uR }, { lL, lR } };
 
-    std::array<std::array<float, fxdefs::kNP>, kSlots> vals;
+    // RANDOM: a new value on every beat (the host's, or the tempo's while it is stopped), glided over ~50 ms
+    rndClock = playing ? ppq : rndClock + n * bpm / (60.0 * fs);
+    if (std::floor (rndClock) != rndBeat)
+    {
+        rndBeat = std::floor (rndClock);
+        for (auto& r : rndTo) { rndState ^= rndState << 13; rndState ^= rndState >> 17; rndState ^= rndState << 5; r = static_cast<float> (rndState) * 4.6566129e-10f - 1.0f; }
+    }
+    const float glide = 1.0f - std::exp (-static_cast<float> (n) / static_cast<float> (0.05 * fs));
+    for (size_t L = 0; L < 2; ++L) { rnd[L] += (rndTo[L] - rnd[L]) * glide; srcNow[L][fxdefs::kModSources - 1] = rnd[L]; }
+    const float envFall = std::exp (-static_cast<float> (n) / static_cast<float> (0.15 * fs));
+
+    std::array<std::array<float, fxdefs::kNP>, kSlots> norms, vals;
+    std::array<int, kSlots> types {};
     std::array<float, kSlots> mix0 {}, mix1 {};
     for (int s = 0; s < kSlots; ++s)
     {
         auto& sl = slots[static_cast<size_t> (s)];
         takePending (sl);
         const int type = sl.builtType < 0 ? 0 : juce::jlimit (0, fxdefs::kNumTypes - 1, static_cast<int> (sl.type->load() + 0.5f));
+        types[static_cast<size_t> (s)] = type;
         for (int i = 0; i < fxdefs::kNP; ++i)
-            vals[static_cast<size_t> (s)][static_cast<size_t> (i)] = fxdefs::value (type, i, sl.p[static_cast<size_t> (i)]->load());
+        {
+            const float nv = sl.p[static_cast<size_t> (i)]->load();
+            norms[static_cast<size_t> (s)][static_cast<size_t> (i)] = nv;
+            vals[static_cast<size_t> (s)][static_cast<size_t> (i)] = fxdefs::value (type, i, nv);
+        }
+        for (int i = 0; i < fxdefs::kExtLen[type]; ++i)
+            extNow[static_cast<size_t> (s)][static_cast<size_t> (i)] = sl.ext[static_cast<size_t> (i)].load (std::memory_order_relaxed);
         mix0[static_cast<size_t> (s)] = sl.mixSm;
         mix1[static_cast<size_t> (s)] = sl.mix->load();
         sl.mixSm = mix1[static_cast<size_t> (s)];
     }
 
+    std::array<float, fxdefs::kNP> modVals;
     for (int L = 0; L < 2; ++L)
     {
         float* l = io[L][0];
@@ -190,6 +294,7 @@ void Rack::processChunk (float* uL, float* uR, float* lL, float* lR, int n, doub
         float* tl = tmp[0].data();
         float* tr = tmp[1].data();
         if (parallel) { std::copy (l, l + n, dl); std::copy (r, r + n, dr); }
+        auto& src = srcNow[static_cast<size_t> (L)];
 
         for (int s = 0; s < kSlots; ++s)
         {
@@ -207,13 +312,39 @@ void Rack::processChunk (float* uL, float* uR, float* lL, float* lR, int n, doub
             const float* inR = parallel ? dr : r;
             std::copy (inL, inL + n, tl);
             std::copy (inR, inR + n, tr);
-            Ctx c { vals[static_cast<size_t> (s)].data(), bpm, fs };
+
+            // modulation: every routed control moves by amount x source, in its own normalised range
+            const float* v = vals[static_cast<size_t> (s)].data();
+            float mixOff = 0.0f;
+            const bool shown = L == (f > 0.5f ? 1 : 0);
+            if (sl.mods.load (std::memory_order_relaxed) > 0)
+            {
+                float pk = 0.0f;
+                for (int i = 0; i < n; ++i) pk = std::max (pk, std::max (std::abs (inL[i]), std::abs (inR[i])));
+                float& e = sl.inEnv[static_cast<size_t> (L)];
+                e = std::max (pk, e * envFall);
+                src[fxdefs::kModSources - 2] = juce::jlimit (0.0f, 1.0f, (juce::Decibels::gainToDecibels (e, -60.0f) + 60.0f) / 60.0f);   // INPUT
+                const int t = types[static_cast<size_t> (s)];
+                for (int tg = 0; tg < kTargets; ++tg)
+                {
+                    float off = 0.0f;
+                    for (int k = 0; k < fxdefs::kModSources; ++k)
+                        off += sl.mod[static_cast<size_t> (tg * fxdefs::kModSources + k)].load (std::memory_order_relaxed) * src[static_cast<size_t> (k)];
+                    if (shown) sl.modNow[static_cast<size_t> (tg)].store (off, std::memory_order_relaxed);
+                    if (tg == fxdefs::kNP) { mixOff = off; continue; }
+                    const auto ti = static_cast<size_t> (tg);
+                    modVals[ti] = off == 0.0f || fxdefs::kParams[t][tg].curve == 2 ? vals[static_cast<size_t> (s)][ti]
+                                                                                   : fxdefs::value (t, tg, juce::jlimit (0.0f, 1.0f, norms[static_cast<size_t> (s)][ti] + off));
+                }
+                v = modVals.data();
+            }
+            Ctx c { v, bpm, fs, ppq, playing, extNow[static_cast<size_t> (s)].data(), noteOns[static_cast<size_t> (L)] };
             u->process (tl, tr, n, c);
 
             float& fade = sl.fade[static_cast<size_t> (L)];
             const float fadeStep = 1.0f / static_cast<float> (0.010 * fs);
             const float a0 = amt, da = (target - amt) / static_cast<float> (n);
-            const float m0 = mix0[static_cast<size_t> (s)], dm = (mix1[static_cast<size_t> (s)] - m0) / static_cast<float> (n);
+            const float m0 = juce::jlimit (0.0f, 1.0f, mix0[static_cast<size_t> (s)] + mixOff), dm = (juce::jlimit (0.0f, 1.0f, mix1[static_cast<size_t> (s)] + mixOff) - m0) / static_cast<float> (n);
             for (int i = 0; i < n; ++i)
             {
                 fade = std::min (1.0f, fade + fadeStep);
@@ -226,7 +357,7 @@ void Rack::processChunk (float* uL, float* uR, float* lL, float* lR, int n, doub
                 l[i] = (parallel ? l[i] : xl) + a * (ol - xl);
                 r[i] = (parallel ? r[i] : xr) + a * (or_ - xr);
             }
-            if (L == (sl.layer->load() > 0.5f ? 1 : 0))   // feed the analyser from the layer the display follows
+            if (shown)   // feed the analyser from the layer the display follows
             {
                 auto& sc = scopes[static_cast<size_t> (s)];
                 int p = sc.pos.load (std::memory_order_relaxed);
@@ -251,7 +382,7 @@ float Rack::getVis (int slot, int i) const noexcept
 {
     const auto& s = slots[static_cast<size_t> (juce::jlimit (0, kSlots - 1, slot))];
     const auto* u = s.current[s.layer != nullptr && s.layer->load() > 0.5f ? 1 : 0];
-    return u != nullptr ? u->vis[static_cast<size_t> (juce::jlimit (0, 7, i))].load (std::memory_order_relaxed) : 0.0f;
+    return u != nullptr ? u->vis[static_cast<size_t> (juce::jlimit (0, Unit::kVis - 1, i))].load (std::memory_order_relaxed) : 0.0f;
 }
 
 void Rack::spectrum (int slot, float* out) const
@@ -343,6 +474,22 @@ juce::ValueTree Rack::toTree() const
         t.setProperty ("name", ir.name, nullptr);
         t.setProperty ("data", irFile.toBase64Encoding(), nullptr);
     }
+    // each slot's extra values ("ext", comma separated) and modulation routes ("mods": target:source:amount;...)
+    for (int s = 0; s < kSlots; ++s)
+    {
+        const auto& sl = slots[static_cast<size_t> (s)];
+        juce::StringArray ext, mods;
+        for (const auto& e : sl.ext) ext.add (juce::String (e.load(), 5));
+        for (int tg = 0; tg < kTargets; ++tg)
+            for (int k = 0; k < fxdefs::kModSources; ++k)
+                if (const float a = sl.mod[static_cast<size_t> (tg * fxdefs::kModSources + k)].load(); a != 0.0f)
+                    mods.add (juce::String (tg) + ":" + juce::String (k) + ":" + juce::String (a, 4));
+        juce::ValueTree st ("SLOT");
+        st.setProperty ("index", s, nullptr);
+        st.setProperty ("ext", ext.joinIntoString (","), nullptr);
+        st.setProperty ("mods", mods.joinIntoString (";"), nullptr);
+        t.appendChild (st, nullptr);
+    }
     return t;
 }
 
@@ -353,5 +500,27 @@ void Rack::fromTree (const juce::ValueTree& t)
         loadImpulse (b.getData(), b.getSize(), t.getProperty ("name").toString());
     else
         makeDefaultImpulse();
+    for (int s = 0; s < kSlots; ++s)
+    {
+        auto& sl = slots[static_cast<size_t> (s)];
+        for (auto& m : sl.mod) m.store (0.0f);
+        for (auto& m : sl.modNow) m.store (0.0f);
+        sl.extSet = false;   // a state without them: the next build gives the type's defaults
+        const auto st = t.getChildWithProperty ("index", s);
+        if (st.isValid() && st.getProperty ("ext").toString().isNotEmpty())
+        {
+            const auto ext = juce::StringArray::fromTokens (st.getProperty ("ext").toString(), ",", "");
+            for (int i = 0; i < fxdefs::kExt; ++i) sl.ext[static_cast<size_t> (i)].store (i < ext.size() ? ext[i].getFloatValue() : 0.0f);
+            sl.extSet = true;
+        }
+        if (st.isValid())
+            for (const auto& m : juce::StringArray::fromTokens (st.getProperty ("mods").toString(), ";", ""))
+            {
+                const auto f = juce::StringArray::fromTokens (m, ":", "");
+                if (f.size() == 3) setMod (s, f[0].getIntValue(), f[1].getIntValue(), f[2].getFloatValue());
+            }
+        countMods (sl);
+    }
+    ++dataVersion;
 }
 } // namespace fx

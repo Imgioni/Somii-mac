@@ -19,7 +19,7 @@ const around = (n, r1, r2, colour, width) => Array.from({ length: n }, (_, i) =>
   return `<line x1="${(100 + s * r1).toFixed(2)}" y1="${(100 - c * r1).toFixed(2)}" x2="${(100 + s * r2).toFixed(2)}" y2="${(100 - c * r2).toFixed(2)}" stroke="${colour}" stroke-width="${width}"/>`;
 }).join('');
 
-// The caps are the 002's own knobs drawn flat (no gradients): the cream UPPER cap, the orange LOWER
+// The caps are Somii's own knobs drawn flat (no gradients): the cream UPPER cap, the orange LOWER
 // cap and the black global cap, plus a slate one for the SUPER SIX faces. A skirt of ticks marks the
 // grip; the pointer is the printed line on the real caps.
 const cap = (rim, face, line) => circle(84, rim) + around(48, 76, 84, face, 2.5) + circle(72, face) + circle(58, 'none', 'stroke="' + rim + '" stroke-opacity=".35" stroke-width="2"') + pointer(28, 64, line, 8);

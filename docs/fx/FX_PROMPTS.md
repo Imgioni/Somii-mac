@@ -79,6 +79,9 @@ windows), then the HP/LP one-poles, then tanh-soft feedback.
 level, and its vertical offset is its pitch. It matches the screenshot.
 
 ### 2. OCEANA
+> **Removed (user, 2026-10-05):** a reverb the rack did not need. Saved slots that held it load empty;
+> later types moved up one place (the processor converts states saved before, see `fxTypes`).
+
 *Inspiration: Arturia Rev OCEAN, a "tidal" FDN reverb with three motion modes.*
 
 This is an 8-line feedback-delay-network reverb (Hadamard mixing) with modulated delay lengths.
@@ -376,6 +379,9 @@ There is one grain stream (user decision, 2026-09-18). It reads a 3-second circu
 salmon.
 
 ### 18. AMBIENT
+> **Removed (user, 2026-10-05):** a reverb the rack did not need. Saved slots that held it load empty;
+> later types moved up one place (the processor converts states saved before, see `fxTypes`).
+
 *Inspiration: Arturia Efx AMBIENT, a two-macro (TONE × SPACE) atmosphere processor with six
 modes.*
 
@@ -401,3 +407,120 @@ The signal runs through a mode "tone" processor and then a modulated FDN space.
 - **LOW CUT**, **HIGH CUT**: the input filter.
 
 **Display.** The XY pad, with a glowing puck and a mode-specific background pattern.
+
+---
+
+## Experimental (added 2026-10-05)
+
+The user asked for three newcomers in EXPERIMENTAL: ShaperBox 3, oeksound bloom ("near identical") and a
+better, more appealing Output Portal. Each is rebuilt from how the original works, under our own name and on
+our own chassis. None borrows the original's name, wording, palette or layout.
+
+Sources read: the ShaperBox 3 review in Sound On Sound and Cableguys' feature list; the bloom review in
+Sound On Sound and oeksound's KVR listing; Output's own Portal grain-controls article and gearnews' overview.
+
+### 23. CARVE
+*Inspiration: Cableguys ShaperBox 3, a chain of "shapers", each driven by its own drawn wave.*
+
+Rebuilt the same day (user: "everything that the shaper box has ... all those modes"). The first
+version had one wave driving nine depth knobs. CARVE is now eleven shapers in ShaperBox's chain order:
+PITCH, REVERB, TIME, DRIVE, NOISE, LIQUID, FILTER, CRUSH, VOLUME, PAN, WIDTH. They show as tabs; the lit
+dot marks a shaper that is on.
+
+**Every shaper has**
+- **ON**: each is switched on by itself.
+- **Its own wave**: 16 points with STEPS, LINES or SMOOTH between them. Drag on the display to draw;
+  right-click for shapes (pump, ramps, sine, triangle, square, gate 1/16, stairs, chop, random, flat).
+  The waves are saved with the state (the slot's EXT values), not as host parameters.
+- **RATE**: 1/32 to 8 bars per cycle.
+- **TRIGGER**:
+  - SYNC: in time with the host (with EXT CLK on; free at the tempo while stopped).
+  - NOTE: restarts on each note played in the layer (ShaperBox's MIDI trigger).
+  - TRANSIENT: restarts on each hit, plays once and holds.
+  - FOLLOW: read by the input level instead of time.
+- **BAND**: FULL, or only the LOW, MID or HIGH band of a three-way split.
+- **MIX**: its own dry/wet.
+
+**The shapers and what their wave does**
+- **PITCH**: ±RANGE semitones around the middle line. STEPS rounds to semitones.
+- **REVERB**: how much of a space (SIZE, DECAY, TONE) you hear: chopped, pumping or swelling tails.
+- **TIME**, four modes:
+  - SHIFT: the wave is how far back to read, up to RANGE of a cycle. Flat lines are stutters; slopes
+    are speed and pitch changes.
+  - HALF-TIME: each cycle is played at 1/RATIO speed (1.5x, 2x, 3x, 4x); the wave says how much.
+  - REVERSE: each cycle is played backwards; the wave says how much.
+  - TAPE STOP: the wave is the tape speed (top = normal, bottom = stopped).
+  - Jumps back to the live signal cross-fade over 10 ms.
+- **DRIVE**: up to AMOUNT dB. SMOOTH, HARD, FOLD or TUBE, a TONE tilt, the level held.
+- **NOISE**: WHITE, PINK, HISS, VINYL, CRACKLE or RUMBLE at LEVEL, through a COLOR low-pass.
+  STATIC, FOLLOW (louder with the input) or DUCK (fills the gaps).
+- **LIQUID**: FLANGER, PHASER (8 stages) or CHORUS. The wave moves the centre within DEPTH, with
+  FEEDBACK (±) and a STEREO offset.
+- **FILTER**: LP 12/24, HP 12/24, BAND PASS, NOTCH or PEAK. The wave sweeps the cutoff between LOW
+  and HIGH, with RESONANCE and a pre-DRIVE.
+- **CRUSH**: down to BITS and RESAMPLE at the top of the wave, plus JITTER.
+- **VOLUME**: ducks by DEPTH. **PAN**: left to right within DEPTH. **WIDTH**: narrower to wider within RANGE.
+
+**Global**: LOW / HIGH XOVER (the band split), SENSITIVITY (TRANSIENT's threshold, FOLLOW's floor), OUTPUT.
+
+Only VOLUME starts on, at DEPTH 0, so CARVE starts level (SGFxCheck: null −240 dB). SGFxCheck also runs
+each shaper on its own and each TIME mode.
+
+## FX modulation (added 2026-10-05)
+
+Right-click any continuous control of any effect (knob, fader, number, DRY / WET) to modulate it. It does
+not appear in the matrix page. The panel lists the layer's sources:
+- LFO 1: a layer-wide twin of the panel's LFO 1, same rate and wave.
+- LFO 2.
+- ENV 1 and ENV 2, from the newest voice.
+- VELOCITY and NOTE, from the last note.
+- MOD WHEEL, AFTERTOUCH, EXPRESSION, RIBBON, BENDER.
+- INPUT: the slot's own input level.
+- RANDOM: a new value each beat, glided.
+
+Drag a row sideways for −100…+100 %; the wheel gives fine steps, and a double-click clears. A route adds
+amount × source to the control's normalised value, as the matrix does, and is applied per layer in 64-sample
+pieces (src/plugin/FxRack.cpp). Knobs show the reachable range as an inner ring and a dot where the plugin
+has them now.
+
+Routes are saved with the state, travel with a swapped slot, and are cleared when the slot's effect changes.
+Stepped keys and LAYER MIX are not modulation targets. SGPluginSmoke checks a route through the hosted
+VST3: VELOCITY → ECHO DELAY's DRY / WET at −100 % takes the echo away.
+
+### 24. POISE
+*Inspiration: oeksound bloom, an adaptive tone shaper.*
+
+Twelve bands, about 0.8 octave apart, listen to the sound and lean it towards a balanced target: equal
+energy per band (pink) with a little more at both ends than pink. Bell filters move the tone; the loudness
+is held (an RMS match, as VALVE does), so turning it up changes the balance, not the level.
+
+**Controls**
+- **AMOUNT** 0–10: how hard it leans. Past 7 it also squashes: each band's fast level is pulled towards its
+  slow level, up and down, above **SQUASH CAL**.
+- **ATTACK**, **RELEASE** 0–10: how fast the bands follow the sound (2 ms–0.5 s, 20 ms–2 s).
+- **TONE** handles 1–4 on the display (LOW, LOW MID, HIGH MID, HIGH): drag sideways for the frequency, up and
+  down for ±6 dB. They move the target, not the sound, so they act through AMOUNT.
+- **WET TRIM** ±12 dB. **STEREO** (both sides moved together) or **MID / SIDE** (each shaped on its own).
+  **DELTA**: hear only what POISE changes.
+- AMOUNT 0 leaves the sound untouched (SGFxCheck: level start; and a check that the level stays within 2 dB
+  while a bass-heavy signal gets more even).
+
+**Display**: the target (dashed), the correction it is making now (filled, sent by the plugin), the output
+spectrum behind, the four numbered handles.
+
+### 25. RIFT
+*Inspiration: Output Portal, a granular effect with an XY pad.*
+
+The input goes through a **DELAY** (free or SYNC) into a 9 s buffer that **FREEZE** stops writing. Grains
+are read from it at **DENSITY** (1–100 /s), **SIZE** (10 ms–1 s) long, up to **SPRAY** into the past, pitched
+by **PITCH** (±24 st) and kept to a **SCALE** (chromatic, major, minor, pentatonic, octaves, fifths), some
+**REVERSED**, panned within **SPREAD**, shaped by **SHAPE** (smooth, triangle, perc, gate). They are filtered
+(**LOW CUT**, **HIGH CUT**), fed back into the delay (**FEEDBACK**) and sent into a **SPACE**.
+
+**What makes it more than the original**: the pad needs no mapping. Its two axes are fixed macros that always
+do something musical.
+- **SCATTER** (across) randomises pitch within the scale, pan, size and position, all at once.
+- **BLOOM** (up) feeds the grains back on themselves and opens and lengthens the space.
+
+**Display**: the pad as a tunnel of rings that drift towards you, faster with density; grains pulled through
+it (reversed ones fly out); the SCATTER × BLOOM point.

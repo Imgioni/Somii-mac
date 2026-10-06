@@ -19,6 +19,7 @@ SuperGeminiProcessor::SuperGeminiProcessor()
     fxRack.bind (apvts);
     ribbonParam = apvts.getRawParameterValue ("perf.ribbon");
     apvts.state.setProperty ("envCurve", 2, nullptr);   // every state saved from here on uses the gentle envelope curve
+    apvts.state.setProperty ("fxTypes", 3, nullptr);    // and the FX type list without UNDERTOW / HALO, CARVE in shapers
     startTimerHz (30);
 }
 
@@ -144,7 +145,15 @@ void SuperGeminiProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
     }
     if (pos < n) engine.process (uL + pos, uR + pos, lL + pos, lR + pos, n - pos);
 
-    fxRack.process (uL, uR, lL, lR, n, clock.bpm);
+    // the FX modulation sources: each layer's LFOs, envelopes, last note and controllers after this block
+    static_assert (fx::Rack::kLayerSources == sg::LayerEngine::kFxSources && fxdefs::kModSources == fx::Rack::kLayerSources + 2);
+    fx::Rack::LayerIn fxIn[2];
+    for (int l = 0; l < 2; ++l)
+    {
+        engine.layer (l).fxSources (fxIn[l].src, n);
+        fxIn[l].noteOns = engine.layer (l).getNoteOns();
+    }
+    fxRack.process (uL, uR, lL, lR, n, clock.bpm, clock.ppq, clock.hostPlaying, fxIn);
 
     const float master = sg::taper::levelGain (perfRefs.masterVolume());
     auto mainBus = getBusBuffer (buffer, false, 0);
@@ -519,6 +528,36 @@ void SuperGeminiProcessor::setStateInformation (const void* data, int sizeInByte
                         node.setProperty ("value", hold && x <= 0.0f ? 0.0f : sg::taper::envPosition (0.001f * std::pow (10.0f, 4.0f * juce::jlimit (0.0f, 1.0f, x))), nullptr);
                     }
                 tree.setProperty ("envCurve", 2, nullptr);
+            }
+            // UNDERTOW (type 2) and HALO (type 18) were removed (user, 2026-10-05) and the later types moved up.
+            // A state saved before carries no fxTypes 2: its slots get the new numbers, the removed two are emptied.
+            if (static_cast<int> (tree.getProperty ("fxTypes", 1)) < 2)
+            {
+                for (const auto* id : { "fx1.type", "fx2.type", "fx3.type" })
+                {
+                    auto node = tree.getChildWithProperty ("id", id);
+                    if (! node.isValid()) continue;
+                    const int t = juce::roundToInt (static_cast<float> (node.getProperty ("value")));
+                    node.setProperty ("value", t == 2 || t == 18 ? 0 : t > 18 ? t - 2 : t > 2 ? t - 1 : t, nullptr);
+                }
+                tree.setProperty ("fxTypes", 2, nullptr);
+            }
+            // CARVE's controls were rearranged into eleven shapers the same day (fxTypes 3): a CARVE slot saved
+            // in the first layout starts again from CARVE's defaults rather than misreading its old values.
+            if (static_cast<int> (tree.getProperty ("fxTypes", 1)) < 3)
+            {
+                for (int s = 1; s <= 3; ++s)
+                {
+                    const juce::String p = "fx" + juce::String (s) + ".";
+                    const auto type = tree.getChildWithProperty ("id", p + "type");
+                    if (! type.isValid() || juce::roundToInt (static_cast<float> (type.getProperty ("value"))) != fxdefs::Carve) continue;
+                    for (int i = 0; i < fxdefs::kNP; ++i)
+                    {
+                        auto node = tree.getChildWithProperty ("id", p + "p" + juce::String (i + 1));
+                        if (node.isValid()) node.setProperty ("value", fxdefs::kParams[fxdefs::Carve][i].def, nullptr);
+                    }
+                }
+                tree.setProperty ("fxTypes", 3, nullptr);
             }
             const auto seqs = tree.getChildWithName ("SEQUENCES");
             if (seqs.isValid())

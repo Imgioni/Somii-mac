@@ -1,9 +1,9 @@
 <!doctype html>
-<!-- 002 by SPKR app icon (from the user's sketch, 2026-09-20): 002 between two rules over a flat grey
+<!-- Somii app icon (from the user's sketch, 2026-09-20; the name was 002 until 2026-10-05): the name between two rules over a flat grey
      keybed that fades out at the bottom (no "by SPKR" line; the keys are drawn, not photographed).
      Dressed like spkr.shop (spkr-shop/v2/index.html): charcoal ground with the hazy washes, still grain
      on the ground only, Archivo + Martian Mono. Open at 1024 x 1024; ?s=256 for another size. -->
-<html><head><meta charset="utf-8"><title>002 Icon</title>
+<html><head><meta charset="utf-8"><title>Somii Icon</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=Martian+Mono:wdth,wght@75..112.5,300..600&display=swap" rel="stylesheet">
 <style>
@@ -33,7 +33,9 @@
   .meta { left:110px; right:110px; top:92px; display:flex; justify-content:space-between; }
   .mark { left:0; right:0; top:170px; display:flex; align-items:center; gap:30px; }
   .rule { flex:1; height:4px; background:var(--line); }
-  .num { font-weight:900; font-stretch:62%; font-size:470px; line-height:.74; letter-spacing:-.035em; padding-top:.06em; }
+  /* five letters where 002 had three: smaller, so the rules still show either side */
+  .num { font-weight:900; font-stretch:62%; font-size:330px; line-height:.74; letter-spacing:-.025em; padding-top:.06em; }
+  .mark { top:230px; }
   /* flat drawn keys in the ink grey, fading out toward the bottom edge */
   .keys { left:0; top:640px; width:1024px; height:384px;
     -webkit-mask-image:linear-gradient(#000 0%, rgba(0,0,0,.55) 45%, transparent 100%);
@@ -43,7 +45,7 @@
 <div id="icon">
   <div class="grain" aria-hidden="true"></div>
   <div class="meta mono"><span>SPKR.SHOP</span><span>VST3</span></div>
-  <div class="mark"><span class="rule"></span><span class="num">002</span><span class="rule"></span></div>
+  <div class="mark"><span class="rule"></span><span class="num">Somii</span><span class="rule"></span></div>
   <svg class="keys" id="keys" viewBox="0 0 1024 384" aria-hidden="true"></svg>
 </div>
 <script>

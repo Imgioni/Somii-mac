@@ -1,4 +1,4 @@
-param([string]$Destination = '002-demo.zip', [string]$BuildDir = 'build-vs')
+param([string]$Destination = 'Somii-demo.zip', [string]$BuildDir = 'build-vs')
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $projectRoot = Split-Path $PSScriptRoot -Parent
@@ -13,10 +13,10 @@ if (Test-Path -LiteralPath $archivePath) { throw "Archive already exists: $archi
 & node (Join-Path $PSScriptRoot 'check-ui-assets.mjs') --binaries
 if ($LASTEXITCODE -ne 0) { throw 'Packaging stopped: at least one build is stale.' }
 $files = [ordered]@{
-  'VST3/002 By SPKR/002 by SPKR.vst3/Contents/x86_64-win/002 by SPKR.vst3' = Join-Path $release 'VST3/002 by SPKR.vst3/Contents/x86_64-win/002 by SPKR.vst3'
-  'VST3/002 By SPKR/002 by SPKR.vst3/Contents/Resources/moduleinfo.json' = Join-Path $release 'VST3/002 by SPKR.vst3/Contents/Resources/moduleinfo.json'
-  'CLAP/002 by SPKR.clap' = Join-Path $release 'CLAP/002 by SPKR.clap'
-  'Standalone/002 by SPKR.exe' = Join-Path $release 'Standalone/002 by SPKR.exe'
+  'VST3/Somii/Somii.vst3/Contents/x86_64-win/Somii.vst3' = Join-Path $release 'VST3/Somii.vst3/Contents/x86_64-win/Somii.vst3'
+  'VST3/Somii/Somii.vst3/Contents/Resources/moduleinfo.json' = Join-Path $release 'VST3/Somii.vst3/Contents/Resources/moduleinfo.json'
+  'CLAP/Somii.clap' = Join-Path $release 'CLAP/Somii.clap'
+  'Standalone/Somii.exe' = Join-Path $release 'Standalone/Somii.exe'
   'DEMO_PACKAGE_README.txt' = Join-Path $PSScriptRoot 'demo-package-readme.txt'
 }
 foreach ($path in $files.Values) { if (!(Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing build: $path" } }

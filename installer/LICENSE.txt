@@ -1,8 +1,8 @@
-002 by SPKR — licence
+Somii by SPKR — licence
 
 Copyright (c) 2026 SPKR. All rights reserved.
 
-002 is free. You may install and use it on as many machines as you like, for
+Somii is free. You may install and use it on as many machines as you like, for
 personal or commercial work, including on music you sell. No registration, no
 account, no time limit.
 
@@ -18,4 +18,4 @@ liable for any claim, damages or other liability arising from, out of or in
 connection with the software or its use.
 
 VST is a trademark of Steinberg Media Technologies GmbH, registered in Europe and
-other countries. 002 is built with JUCE.
+other countries. Somii is built with JUCE.

@@ -1,15 +1,15 @@
-002 by SPKR
+Somii by SPKR
 A two-layer bi-timbral synth after the UDO Super Gemini, with a three-slot FX rack.
 
 WHAT GOT INSTALLED
-  VST3 plug-in   C:\Program Files\Common Files\VST3\002 By SPKR\
+  VST3 plug-in   C:\Program Files\Common Files\VST3\Somii\
   CLAP plug-in   C:\Program Files\Common Files\CLAP\
   Standalone     the folder you chose, with a Start Menu shortcut
-  Patches        Documents\002\Patches (each folder in there is a bank)
+  Patches        Documents\Somii\Patches (each folder in there is a bank)
 
 FINDING IT IN YOUR DAW
   FL Studio    Options > Manage plugins > Find more plugins, then look for
-               "002 | by SPKR" under Generators
+               "Somii" under Generators
   Ableton      Options > Preferences > Plug-ins > Rescan
   Reaper       Options > Preferences > VST > Re-scan
   Studio One   Studio One > Options > Locations > VST Plug-ins > Reset Blocklist
@@ -34,6 +34,6 @@ NOTES
   https://developer.microsoft.com/microsoft-edge/webview2/
 
 UNINSTALLING
-  Settings > Apps > Installed apps > 002 by SPKR, or the Start Menu shortcut.
+  Settings > Apps > Installed apps > Somii, or the Start Menu shortcut.
 
 spkr.shop

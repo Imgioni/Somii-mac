@@ -56,14 +56,15 @@ const gen = fs.readFileSync(new URL('../ui/gen.mjs', import.meta.url), 'utf8');
 const runtime = fs.readFileSync(new URL('../ui/geminus.js', import.meta.url), 'utf8');
 const editor = fs.readFileSync(new URL('../src/plugin/WebEditor.cpp', import.meta.url), 'utf8');
 const themeKeys = gen.match(/const THEME_KEYS = \[([^\]]+)\]/)[1].split(',').map(t => t.trim().replace(/'/g, ''));
-const runtimeThemes = runtime.match(/const THEMES = \[([^\]]+)\]/)[1].split(',').map(t => t.trim().replace(/'/g, ''));
+// geminus.js reads its list from the SETTINGS theme cards and makes one action per card (2026-10-05)
+const cardThemes = [...html.matchAll(/class="theme-card"[^>]*data-theme="([a-z0-9-]+)"/g)].map(m => m[1]);
 check(themeKeys.length > 1, 'the generator defines themes');
-assert.deepEqual(runtimeThemes, themeKeys, 'geminus.js knows the same themes as gen.mjs');
+assert.deepEqual(cardThemes, themeKeys, 'SETTINGS has one theme card per theme, in order');
+check(/const THEMES = all\('\[data-theme\]'\)/.test(runtime) && runtime.includes("actions['theme_'+t]"), 'geminus.js takes its themes and actions from the cards');
 const uiThemeFn = editor.slice(editor.indexOf('"uiTheme"'), editor.indexOf('"uiTheme"') + 800);
 for (const [i, t] of themeKeys.entries()) {
-  const action = 'theme' + t[0].toUpperCase() + t.slice(1);
-  check(html.includes('data-action="' + action + '"'), t + ' has a SETTINGS button');
-  check(runtime.includes(action + ':'), t + ' has a runtime action');
+  check(html.includes('data-action="theme_' + t + '"'), t + ' card runs its action');
+  check(html.includes('id="act-theme-' + t + '"'), t + ' card shows which theme is on');
   if (i > 0) {
     check(html.includes('body.theme-' + t + ' {'), t + ' has its own palette block');
     check(!uiThemeFn.includes('"' + t + '"'), 'the plugin does not enumerate theme ' + t);

@@ -23,7 +23,7 @@ public:
     // fallback used before the first report - they can never silently go stale again.
     static constexpr int kPageW = 3400, kPageH = 1330;
     // Desktop mode (ui/gen.mjs DK_LINES): one engine at a time at full control size.
-    static constexpr int kDesktopPageW = 2028, kDesktopPageH = 1152;
+    static constexpr int kDesktopPageW = 2092, kDesktopPageH = 1164;   // the page reports its real size (pageSize) and wins
 
     explicit GeminusWebSession (SuperGeminiProcessor& p);
     ~GeminusWebSession() override;
@@ -69,6 +69,7 @@ private:
     uint32_t sentSeqVersion = ~0u;
     juce::String sentPatchName;
     int sentIrVersion = -1;
+    int sentFxData = -1;
     int sentCustomVersion[2] { -1, -1 };
 
     // Relays are built from the processor's own parameter list, so the page and the C++

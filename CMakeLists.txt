@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(Geminus VERSION 0.4.6 LANGUAGES C CXX)
+project(Geminus VERSION 0.5.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -94,14 +94,15 @@ if(APPLE)
 else()
     # Windows: install straight into the shared VST3 folder. On macOS JUCE already uses
     # ~/Library/Audio/Plug-Ins, so naming a path here would point the copy at a Windows folder.
-    set(SG_COPY_ARGS VST3_COPY_DIR "C:/Program Files/Common Files/VST3/002 By SPKR")
+    set(SG_COPY_ARGS VST3_COPY_DIR "C:/Program Files/Common Files/VST3/Somii")
 endif()
 
-# Brand: vendor "SPKR", product "002" (renamed from Geminus on 2026-09-19; target name and IDs kept).
+# Brand: vendor "SPKR", product "Somii" (renamed from Geminus on 2026-09-19, from 002 on 2026-10-05;
+# target name and IDs kept, so projects saved with the older names still find it).
 juce_add_plugin(Geminus
     COMPANY_NAME "SPKR"
-    PRODUCT_NAME "002 by SPKR"          # file names (no | allowed in Windows file names)
-    PLUGIN_NAME "002 | by SPKR"          # the name hosts show; the IDs below stay, so projects still find it
+    PRODUCT_NAME "Somii"                 # file names
+    PLUGIN_NAME "Somii"                  # the name hosts show; the IDs below stay, so projects still find it
     ${SG_COPY_ARGS}                      # Windows: its own folder under Common Files
     BUNDLE_ID "com.spkr.geminus"
     PLUGIN_MANUFACTURER_CODE Spkr
@@ -188,7 +189,7 @@ juce_add_console_app(SGDumpParams PRODUCT_NAME "SGDumpParams")
 target_sources(SGDumpParams PRIVATE tools/DumpParams.cpp ${SG_PLUGIN_SOURCES})
 target_include_directories(SGDumpParams PRIVATE src "${CMAKE_BINARY_DIR}/geminus_ui_include")
 target_compile_definitions(SGDumpParams PRIVATE
-    JucePlugin_Name="002" JUCE_WEB_BROWSER=1 JUCE_USE_CURL=0
+    JucePlugin_Name="Somii" JUCE_WEB_BROWSER=1 JUCE_USE_CURL=0
     GEMINUS_DEV_UI=$<BOOL:${GEMINUS_DEV_UI}>
     GEMINUS_UI_DIR="${CMAKE_CURRENT_SOURCE_DIR}/ui")
 if(WIN32)
@@ -230,7 +231,7 @@ target_link_libraries(SGPluginSmoke
 juce_add_console_app(SGUiSnapshot PRODUCT_NAME "SGUiSnapshot")
 target_sources(SGUiSnapshot PRIVATE tools/UiSnapshot.cpp ${SG_PLUGIN_SOURCES})
 target_include_directories(SGUiSnapshot PRIVATE src)
-target_compile_definitions(SGUiSnapshot PRIVATE JucePlugin_Name="002" JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_compile_definitions(SGUiSnapshot PRIVATE JucePlugin_Name="Somii" JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 if(MSVC)
     target_compile_options(SGUiSnapshot PRIVATE /utf-8)
 endif()

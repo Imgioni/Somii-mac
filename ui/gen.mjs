@@ -8,7 +8,7 @@ import {
   knob, rotary, wRotary, fader, hfader, sw3, wSw3, button, led, ledBound, ledLadder, sect, popover,
   keyButton, hit, TEXT, lineH, wText, r1, esc, FONT, BTN_ASPECT, STYLE
 } from './lib.mjs';
-import { FX, DIVS } from './fxdefs.mjs';
+import { FX, DIVS, NP, CARVE_BEATS, CARVE_SHAPERS, CARVE_HINTS, FX_MOD_SOURCES, FX_EXT } from './fxdefs.mjs';
 import { SKINS, SKIN_OF } from './fxskins.js';
 
 const OUT = path.dirname(fileURLToPath(import.meta.url));   // decodes spaces (the project folder is '002 by SPKR')
@@ -688,15 +688,21 @@ function ribbonRow(y, rx, rw) {
   return o;
 }
 
-// the product mark (user, 2026-09-19): 002, by S·P·K·R - centred in the corner beside the ribbon
-function wordmark(x, y) {
-  return '<div style="position:absolute;left:' + x + 'px;top:' + (y - 4) + 'px;width:470px;height:84px;display:flex;align-items:center;justify-content:center;gap:22px;'
+// the product mark: Somii, by S·P·K·R (user, 2026-10-05; 002 before), centred under the rule beside the
+// ribbon. Set on the font's own metrics (Bahnschrift condensed: at 64 px the cap height is 46 px and the
+// baseline 51 px into a 64 px line; at 30 px 21 / 24; at 15 px 11 / 12), so that:
+//   - the name's cap band sits on the ribbon's centre line (cap top = top + 5, baseline = top + 51)
+//   - the divider spans exactly cap top to baseline
+//   - BY starts at the name's cap top and S·P·K·R stands on the name's baseline
+// `top` is the ribbon's top edge (the ribbon is 56 px tall, so its centre is top + 28 = the cap band's centre).
+function wordmark(x, top) {
+  return '<div style="position:absolute;left:' + x + 'px;top:' + top + 'px;width:470px;height:64px;display:flex;align-items:flex-start;justify-content:center;gap:22px;'
     + 'font-family:' + FONT + ';font-stretch:75%;color:' + INK + ';white-space:nowrap;pointer-events:none">'
-    + '<span style="font-size:64px;font-weight:700;letter-spacing:.06em;line-height:1">002</span>'
-    + '<span style="width:1.5px;height:46px;background:currentColor;opacity:.8"></span>'
-    + '<span style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.05">'
-    + '<span style="font-size:15px;font-weight:600;letter-spacing:.3em;color:' + INK2 + '">BY</span>'
-    + '<span style="font-size:30px;font-weight:700;letter-spacing:.04em">S·P·K·R</span></span></div>';
+    + '<span style="font-size:64px;font-weight:700;letter-spacing:.03em;line-height:64px;height:64px">Somii</span>'
+    + '<span style="width:1.5px;height:46px;margin-top:5px;background:currentColor;opacity:.8"></span>'
+    + '<span style="display:flex;flex-direction:column;align-items:flex-start">'
+    + '<span style="font-size:15px;font-weight:600;letter-spacing:.3em;line-height:15px;height:15px;margin-top:4px;color:' + INK2 + '">BY</span>'
+    + '<span style="font-size:30px;font-weight:700;letter-spacing:.04em;line-height:30px;height:30px;margin-top:8px">S·P·K·R</span></span></div>';
 }
 
 // ------------------------------------------------------------------ keyboard
@@ -994,7 +1000,7 @@ function patchBrowser() {
   let o = '<div id="pop-patches" class="pop pb-pop-page" hidden><div class="pop-panel pb-page">';
   // ---- top bar
   o += '<header class="pb-top">'
-    + '<div class="pb-back" data-close="pop-patches" title="Back to the panel (Esc)"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M14.5 6 8.5 12 14.5 18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>002</div>'
+    + '<div class="pb-back" data-close="pop-patches" title="Back to the panel (Esc)"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M14.5 6 8.5 12 14.5 18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Somii</div>'
     + '<div class="pb-title">SOUNDS</div>'
     + '<label class="pb-search"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="m15 15 5 5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>'
     + '<input id="patch-search" placeholder="Search names, types and packs" spellcheck="false"></label>'
@@ -1010,7 +1016,7 @@ function patchBrowser() {
     + '<div class="pb-nav" data-view="packs">PACKS<span id="pb-n-packs"></span></div>'
     + '<div class="pb-side-h">YOUR PACKS</div><div id="patch-packlist" class="pb-packlist"></div>'
     + '<div class="pb-side-foot"><div id="patch-folder-path" class="pb-note" title=""></div><div class="pb-links">'
-    + act('patchFolderUser', 'MY PATCHES', 'pb-l', null, 'Documents / 002 / Patches') + act('patchFolderChoose', 'OTHER FOLDER…', 'pb-l', null, 'Pick any folder that has .gpatch files')
+    + act('patchFolderUser', 'MY PATCHES', 'pb-l', null, 'Documents / Somii / Patches') + act('patchFolderChoose', 'OTHER FOLDER…', 'pb-l', null, 'Pick any folder that has .gpatch files')
     + act('patchOpen', 'OPEN FILE…', 'pb-l', null, 'Load any .gpatch file') + act('patchRefresh', 'REFRESH', 'pb-l', null, 'Re-read the folder')
     + act('initUpper', 'INIT UPPER', 'pb-l', null, 'Reset the upper layer to the init sound') + act('initLower', 'INIT LOWER', 'pb-l', null, 'Reset the lower layer to the init sound')
     + '</div></div></nav>';
@@ -1048,14 +1054,66 @@ function tipRow(x, y, w, pairs) {
     + txt(x + i * pitch, y + 20, pitch - 16, v, { size: 8, align: 'left', color: INK, weight: 700 })).join('');
 }
 
-// SETTINGS: six columns on one grid. Every column starts on the same heading line, its controls
+// ---- themes ------------------------------------------------------------------
+// GEMINI (default) is the original hardware look. SUPER SIX recolours it. The photographed
+// parts are not replaced: SVG filters re-map their luminance so that each asset's measured
+// mid-tone lands exactly on the palette colour, keeping the render's shading and highlights.
+//   cap1 = upper caps + light keys, cap2 = lower caps, capDark = black caps + dark keys,
+//   insetTex = what happens to the dark inset texture ('flat' recolours it, 'hide' drops it)
+const THEMES = {
+  gemini: { base: '#E7E2DA', ink: '#23252A', ink2: '#4E5055', accent: '#F65A27', inset: '#424243', oink: '#E2E0DA', oink2: '#B4B2AC',
+          rule: '#8A8B89', otick: '#9A9894', badge: '#E2E0DA', 'badge-ink': '#23252A', hi: '#F1EFE9', field: 'rgba(255,255,255,.5)', shade: '.45',
+          sel: '#F65A27', osel: '#F65A27', opt: '#4E5055', link: '#23252A', pressed: '#F65A27',
+          // pop-overs: the theme, darker - charcoal from the inset panels, cream ink, the orange accent
+          'pop-bg': '#434345', 'pop-bg2': '#262627', 'pop-ink': '#E7E2DA', 'pop-ink2': '#A8A49C', 'pop-accent': '#F65A27',
+          'pop-rule': 'rgba(231,226,218,.16)', 'pop-link': '#D8D2C8', 'pop-key': '#333335',
+          'pop-upper': '#E7E2DA', 'pop-lower': '#F65A27',
+          // the sample waveform, coloured by what is in it: lows, mids, highs
+          'wave-lo': '#F65A27', 'wave-mid': '#F2A33A', 'wave-hi': '#E7E2DA' },   // the layers' cap colours: cream UPPER, orange LOWER
+  // palette: base #568EA3, accent #826251, light #FFE8D1, text #FFFFFF, lines #68C3D4
+  super6: { base: '#568EA3', ink: '#FFFFFF', ink2: '#FFE8D1', opt: '#68C3D4', accent: '#826251', inset: '#FFE8D1', oink: '#568EA3', oink2: '#68C3D4',
+          rule: '#68C3D4', otick: '#568EA3', badge: '#568EA3', 'badge-ink': '#FFFFFF', hi: '#FFFFFF', field: 'rgba(0,0,0,.14)', shade: '.12',
+          sel: '#FFFFFF', osel: '#826251', link: '#274957', pressed: '#FFFFFF',
+          // pop-overs: the theme, darker - deep blue, white ink, cream secondary, the line colour as accent
+          'pop-bg': '#2F5A6B', 'pop-bg2': '#18323D', 'pop-ink': '#FFFFFF', 'pop-ink2': '#D9C9B6', 'pop-accent': '#68C3D4',
+          'pop-rule': 'rgba(104,195,212,.3)', 'pop-link': '#FFE8D1', 'pop-key': '#244654',
+          'pop-upper': '#FFE8D1', 'pop-lower': '#C08A6C',
+          'wave-lo': '#C08A6C', 'wave-mid': '#68C3D4', 'wave-hi': '#FFE8D1',
+          cap1: '#FFE8D1', cap2: '#826251', capDark: '#826251', insetTex: 'hide' },
+  // DARK (user, 2026-10-05: "ember is now dark mode, get rid of the old dark mode"): graphite panel, black
+  // recessed wells darker than the panel (texture kept), GEMINI's own cream for UPPER and orange for LOWER and
+  // for everything that is on. One neutral ramp: wells #141415 < panel #202022 < rules #4A4A4E < ink2 #A29E97
+  // < ink #EEEAE3. The black keys and caps are lifted to #505056 so they stand off the graphite (at the
+  // panel's own darkness they disappeared).
+  dark: { base: '#202022', ink: '#EEEAE3', ink2: '#A29E97', opt: '#A29E97', accent: '#F65A27', 'accent-ink': '#FFFFFF', inset: '#141415',
+          oink: '#E2E0DA', oink2: '#9A978F', rule: '#4A4A4E', otick: '#5E5E62', badge: '#2C2C2F', 'badge-ink': '#EEEAE3',
+          hi: '#F1EFE9', field: 'rgba(238,234,227,.07)', shade: '.30',
+          sel: '#F65A27', osel: '#F65A27', link: '#D8D2C8', pressed: '#F65A27',
+          'pop-bg': '#2A2A2D', 'pop-bg2': '#18181A', 'pop-ink': '#EEEAE3', 'pop-ink2': '#A29E97', 'pop-accent': '#F65A27',
+          'pop-rule': 'rgba(238,234,227,.14)', 'pop-link': '#D8D2C8', 'pop-key': '#1F1F21',
+          'pop-upper': '#E7E2DA', 'pop-lower': '#F65A27',
+          'wave-lo': '#F65A27', 'wave-mid': '#F2A33A', 'wave-hi': '#E7E2DA',
+          cap1: '#E7E2DA', cap2: '#F65A27', capDark: '#505056', insetTex: 'flat', keys: '#DCD8D0',
+          name: 'DARK', blurb: 'Graphite with the original cream and orange.' },
+
+};
+// the picker's names and lines (and the colours its swatch shows) for the themes that predate them
+Object.assign(THEMES.gemini, { name: 'GEMINI', blurb: 'The original hardware: cream, charcoal, orange. Default.', 'accent-ink': '#FFFFFF',
+  swatch: ['#E7E2DA', '#424243', '#E7E2DA', '#F65A27', '#2A2A2C', '#F65A27'] });
+Object.assign(THEMES.super6, { name: 'SUPER SIX', blurb: 'Blue panel, cream caps, brown LOWER.', 'accent-ink': '#FFFFFF' });
+const THEME_KEYS = ['gemini', 'super6', 'dark'];
+// swatch: panel, well, UPPER cap, LOWER cap, black cap, accent
+const swatchOf = (k) => THEMES[k].swatch || [THEMES[k].base, THEMES[k].inset, THEMES[k].cap1, THEMES[k].cap2, THEMES[k].capDark, THEMES[k].accent];
+const CSS_KEYS = ['base', 'ink', 'ink2', 'opt', 'accent', 'accent-ink', 'inset', 'oink', 'oink2', 'rule', 'otick', 'badge', 'badge-ink', 'hi', 'field', 'shade', 'sel', 'osel', 'link', 'pressed', 'pop-bg', 'pop-bg2', 'pop-ink', 'pop-ink2', 'pop-accent', 'pop-rule', 'pop-link', 'pop-key', 'pop-upper', 'pop-lower', 'wave-lo', 'wave-mid', 'wave-hi'];
+
+// SETTINGS: five columns on one grid, the THEME cards in a row under them. Every column starts on the same heading line, its controls
 // centre on the same axis, and every knob prints its value under its label. The column maths
 // derives from w, so both page margins stay equal and no heading rule runs off the panel (the
 // hand-placed columns this replaces overlapped at DISPLAY and clipped THEME 100 px past the edge).
-const SET_W = 2200, SET_H = 400;
+const SET_W = 2200, SET_H = 650;
 function settingsPage(w) {
   let o = '';
-  const M = 40, GUT = 32, N = 6;
+  const M = 40, GUT = 32, N = 5;
   const CW = Math.round((w - 2 * M - GUT * (N - 1)) / N);
   const CX = (i) => M + i * (CW + GUT);
   const HALF = Math.round((CW - 20) / 2);          // two controls side by side inside a column
@@ -1098,13 +1156,27 @@ function settingsPage(w) {
   o += txt(CX(4), 192, CW, 'OFF', { size: 8, color: INK, weight: 700, id: 'desktop-layout-state' });
   o += txt(CX(4), 216, CW, 'FULL PANEL WITH KEYBOARD', { size: 6.6, color: INK2, weight: 600, id: 'desktop-layout-detail' });
 
-  col(5, 'THEME');
-  o += keyButton(CX(5), BY, CW, 'GEMINI', 'themeGemini', { h: BH, domId: 'act-theme-gemini', title: 'The original hardware colours (default)' });
-  o += keyButton(CX(5), BY + 52, CW, 'SUPER SIX', 'themeSuper6', { h: BH, domId: 'act-theme-super6', title: 'Blue and brown' });
-  o += keyButton(CX(5), BY + 104, CW, 'DARK', 'themeDark', { h: BH, domId: 'act-theme-dark', title: 'GEMINI inverted, in grey: black panel, grey insets, no orange' });
-
+  // THEME (user, 2026-10-05: "a better selection menu"): a row of cards under the columns, one per theme.
+  // Each shows the theme itself in small: its panel with a recessed well, the three cap colours and the
+  // accent, then its name and one line. The theme in use is outlined and says so.
   o += hrule(M, 300, w - 2 * M, 'var(--rule)', 1);
-  o += tipRow(M, 322, w - 2 * M, [['SHIFT', 'SECONDARY FUNCTIONS'], ['CTRL-DRAG', 'FINE'], ['DOUBLE-CLICK', 'DEFAULT'],
+  o += sect(M, 326, w - 2 * M, 'THEME', { align: 'left' });
+  const TG = 24, TW = Math.round((w - 2 * M - TG * (THEME_KEYS.length - 1)) / THEME_KEYS.length), TY = 372, TH = 150;
+  THEME_KEYS.forEach((k, i) => {
+    const [panel, well, c1, c2, c3, acc] = swatchOf(k), T = THEMES[k];
+    const sw = '<svg class="tc-sw" viewBox="0 0 150 110" width="150" height="110" aria-hidden="true">'
+      + '<rect x=".5" y=".5" width="149" height="109" rx="8" fill="' + panel + '" stroke="rgba(255,255,255,.14)"/>'
+      + '<rect x="12" y="12" width="126" height="3" rx="1.5" fill="' + acc + '"/>'
+      + '<rect x="84" y="28" width="54" height="68" rx="5" fill="' + well + '"/>'
+      + '<rect x="96" y="40" width="4" height="44" rx="2" fill="' + c1 + '" opacity=".9"/><rect x="110" y="40" width="4" height="44" rx="2" fill="' + c2 + '" opacity=".9"/><rect x="124" y="40" width="4" height="44" rx="2" fill="' + c3 + '" stroke="rgba(255,255,255,.25)" stroke-width=".5"/>'
+      + [[30, c1], [62, c2]].map(([cx, c]) => '<circle cx="' + cx + '" cy="48" r="13" fill="' + c + '"/>').join('')
+      + '<circle cx="30" cy="84" r="9" fill="' + c3 + '" stroke="rgba(255,255,255,.25)"/><circle cx="62" cy="84" r="9" fill="' + acc + '"/></svg>';
+    o += '<div class="theme-card" role="button" tabindex="0" data-action="theme_' + k + '" data-theme="' + k + '" id="act-theme-' + k + '" aria-pressed="false" title="' + esc(T.blurb) + '" style="left:' + (M + i * (TW + TG)) + 'px;top:' + TY + 'px;width:' + TW + 'px;height:' + TH + 'px">'
+      + sw + '<span class="tc-name">' + esc(T.name) + '</span><span class="tc-blurb">' + esc(T.blurb) + '</span><span class="tc-on">IN USE</span></div>';
+  });
+
+  o += hrule(M, 552, w - 2 * M, 'var(--rule)', 1);
+  o += tipRow(M, 574, w - 2 * M, [['SHIFT', 'SECONDARY FUNCTIONS'], ['CTRL-DRAG', 'FINE'], ['DOUBLE-CLICK', 'DEFAULT'],
     ['RIGHT-CLICK', 'ROUTE MODULATION'], ['WHEEL', 'STEP BY STEP']]);
   return o;
 }
@@ -1126,7 +1198,6 @@ function fxArt(f) {
   switch (f ? f.id : 'none') {
     case 'none': a = L('M20 20 44 44M44 20 20 44', dim, 3); break;
     case 'psdelay': for (let i = 0; i < 5; i++) a += C(12 + i * 10, 46 - i * 7, 6 - i, i ? ink : acc, 1 - i * 0.15); break;
-    case 'revocean': for (let i = 0; i < 5; i++) a += L(wave((t) => 20 + i * 8 - Math.exp(-t * 3) * 9 * (0.5 + 0.5 * sin(t + i * 0.13, 2))), i === 3 ? acc : ink, 2, 0.5 + i * 0.12); break;
     case 'tapeecho': for (let i = 0; i < 6; i++) { const hh = 18 * Math.pow(0.75, i); a += R(10 + i * 8, i % 2 ? 32 : 32 - hh, 5, hh, i ? ink : acc); } a += L('M8 32H56', dim, 1); break;
     case 'convolver': a += R(10, 12, 4, 40, acc); for (let i = 0; i < 18; i++) { const hh = 34 * Math.exp(-i / 6) * (0.5 + 0.5 * Math.abs(Math.sin(i * 2.7))); a += R(16 + i * 2.3, 52 - hh, 1.4, hh, ink); } break;
     case 'tuba': a += L('M22 52V24a10 10 0 0 1 20 0v28Z', ink, 2.5) + L('M28 44 30 30 32 44 34 30 36 44', acc, 2.5) + L('M24 56v4M30 56v4M34 56v4M40 56v4', dim, 2); break;
@@ -1143,10 +1214,14 @@ function fxArt(f) {
     case 'proq': a += L('M8 40C18 40 18 22 26 22S34 46 42 46 50 30 56 30', acc, 3) + C(26, 22, 4, ink) + C(42, 46, 4, ink); break;
     case 'filter': a += L('M8 40H30C36 40 38 22 41 22S44 34 47 44 52 54 56 56', acc, 3) + L('M8 48H56', dim, 1); break;
     case 'autochroma': a += L('M32 12 50 46H14Z', ink, 2.5) + ['#F65A27', acc, ink].map((c, i) => L('M38 ' + (30 + i * 5) + 'L56 ' + (22 + i * 10), c, 2.5)).join('') + L('M8 34H28', dim, 2); break;
-    case 'ambient': for (let i = 4; i >= 1; i--) a += '<ellipse cx="32" cy="32" rx="' + i * 6.5 + '" ry="' + i * 5 + '" fill="none" stroke="' + ink + '" stroke-width="1.6" opacity="' + (1.2 - i * 0.22) + '"/>'; a += C(32, 32, 5, acc); break;
     case 'valleyverb': [0, 1, 2, 3].forEach((i) => { a += R(10 + i * 4, 52 - 28 * Math.pow(0.8, i), 2.4, 28 * Math.pow(0.8, i), acc); }); for (let i = 0; i < 16; i++) { const hh = 22 * Math.exp(-i / 6); a += R(28 + i * 1.8, 52 - hh, 1.1, hh, ink, 0.7); } break;
     case 'nudestort': a += ['#F65A27', '#68C3D4', '#23252A', '#826251'].map((c, i) => '<path d="' + wave((t) => 16 + i * 10 + 6 * sin(t + i * 0.2, 1.2) * Math.cos(t * 3 + i), 6, 58) + 'L58 64H6Z" fill="' + c + '"/>').join(''); break;
-    case 'parlour': a += '<rect x="16" y="16" width="32" height="32" fill="none" stroke="' + ink + '" stroke-width="2.5"/>' + L('M16 16 9 9M48 16 55 9M16 48 9 55M48 48 55 55', ink, 2) + [24, 32, 40].map((y) => L(wave((t) => y + 2.5 * sin(t, 1), 16, 48), ink, 1.6, 0.7)).join(''); break;
+    // CARVE: two beats of a drawn pump, its points marked; POISE: an uneven spectrum and the even line it leans to;
+    // RIFT: a tunnel of rings with grains coming through it
+    case 'carve': a += L('M8 52H56', dim, 1) + L('M8 50C12 26 16 18 30 16V50C34 26 38 18 56 16', acc, 3) + [[8, 50], [30, 16], [30, 50], [56, 16]].map(([x, y]) => C(x, y, 2.6, ink)).join(''); break;
+    case 'poise': a += [30, 18, 34, 22, 40, 26, 44, 30, 36].map((y, i) => R(9 + i * 5.2, y, 3.6, 52 - y, ink, 0.35)).join('') + L('M8 30C20 34 44 34 56 30', acc, 3) + C(20, 33, 3, acc) + C(44, 33, 3, acc); break;
+    case 'rift': for (let i = 4; i >= 1; i--) a += '<ellipse cx="34" cy="32" rx="' + i * 6.2 + '" ry="' + i * 6.8 + '" fill="none" stroke="' + ink + '" stroke-width="1.6" opacity="' + (0.25 + (4 - i) * 0.2) + '"/>'; a += [[14, 20, 2.4], [52, 14, 1.8], [12, 46, 1.6], [50, 48, 2.2], [24, 52, 1.4]].map(([x, y, r]) => C(x, y, r, acc)).join('') + C(34, 32, 4, acc); break;
+    case 'parlour': a +='<rect x="16" y="16" width="32" height="32" fill="none" stroke="' + ink + '" stroke-width="2.5"/>' + L('M16 16 9 9M48 16 55 9M16 48 9 55M48 48 55 55', ink, 2) + [24, 32, 40].map((y) => L(wave((t) => y + 2.5 * sin(t, 1), 16, 48), ink, 1.6, 0.7)).join(''); break;
   }
   return '<svg viewBox="0 0 64 64" width="64" height="64" aria-hidden="true"><rect width="64" height="64" rx="7" fill="' + bg + '"/>' + a + '</svg>';
 }
@@ -1238,7 +1313,7 @@ body += '<div class="fp-wrap">' + layerRow(ROW2, false) + hrule(PL, STRIP - 6, P
 body += '<div class="fp-wrap">' + globalStrip(STRIP) + '</div>';
 body += '<div class="fp-wrap">' + hrule(PL, BOTTOM - 2, KBX - PL, 'var(--rule)') + perfBlock(PL + 6, BOTTOM + 6, KBX - PL - 40) + '</div>';
 const RIBW = PR - 470 - KBX;
-body += '<div class="fp-wrap">' + hrule(PR - 470, BOTTOM - 2, 470, 'var(--rule)') + vrule(KBX - 24, BOTTOM + 4, H - BOTTOM - 8) + ribbonRow(RIBY, KBX, RIBW) + wordmark(PR - 470, RIBY - 18) + '</div>';
+body += '<div class="fp-wrap">' + hrule(PR - 470, BOTTOM - 2, 470, 'var(--rule)') + vrule(KBX - 24, BOTTOM + 4, H - BOTTOM - 8) + ribbonRow(RIBY, KBX, RIBW) + wordmark(PR - 470, RIBY) + '</div>';
 
 // desktop-only cards. MASTER VOLUME and DETUNE sit in the full panel's per-layer left
 // column; desktop mode shows one layer (chosen by the LAYER keys), so both get a shared card. Same parameters,
@@ -1311,48 +1386,6 @@ dkCss += '#pop-patches .pb-page{width:' + r1(W / PB_Z) + 'px;height:' + r1(H / P
 body = '<div class="dk-only">' + dkDecor + '</div>' + body;
 console.log('desktop ' + DESKTOP_W + 'x' + DESKTOP_H);
 
-// ---- themes ------------------------------------------------------------------
-// GEMINI (default) is the original hardware look. SUPER SIX recolours it. The photographed
-// parts are not replaced: SVG filters re-map their luminance so that each asset's measured
-// mid-tone lands exactly on the palette colour, keeping the render's shading and highlights.
-//   cap1 = upper caps + light keys, cap2 = lower caps, capDark = black caps + dark keys,
-//   insetTex = what happens to the dark inset texture ('flat' recolours it, 'hide' drops it)
-const THEMES = {
-  gemini: { base: '#E7E2DA', ink: '#23252A', ink2: '#4E5055', accent: '#F65A27', inset: '#424243', oink: '#E2E0DA', oink2: '#B4B2AC',
-          rule: '#8A8B89', otick: '#9A9894', badge: '#E2E0DA', 'badge-ink': '#23252A', hi: '#F1EFE9', field: 'rgba(255,255,255,.5)', shade: '.45',
-          sel: '#F65A27', osel: '#F65A27', opt: '#4E5055', link: '#23252A', pressed: '#F65A27',
-          // pop-overs: the theme, darker - charcoal from the inset panels, cream ink, the orange accent
-          'pop-bg': '#434345', 'pop-bg2': '#262627', 'pop-ink': '#E7E2DA', 'pop-ink2': '#A8A49C', 'pop-accent': '#F65A27',
-          'pop-rule': 'rgba(231,226,218,.16)', 'pop-link': '#D8D2C8', 'pop-key': '#333335',
-          'pop-upper': '#E7E2DA', 'pop-lower': '#F65A27',
-          // the sample waveform, coloured by what is in it: lows, mids, highs
-          'wave-lo': '#F65A27', 'wave-mid': '#F2A33A', 'wave-hi': '#E7E2DA' },   // the layers' cap colours: cream UPPER, orange LOWER
-  // palette: base #568EA3, accent #826251, light #FFE8D1, text #FFFFFF, lines #68C3D4
-  super6: { base: '#568EA3', ink: '#FFFFFF', ink2: '#FFE8D1', opt: '#68C3D4', accent: '#826251', inset: '#FFE8D1', oink: '#568EA3', oink2: '#68C3D4',
-          rule: '#68C3D4', otick: '#568EA3', badge: '#568EA3', 'badge-ink': '#FFFFFF', hi: '#FFFFFF', field: 'rgba(0,0,0,.14)', shade: '.12',
-          sel: '#FFFFFF', osel: '#826251', link: '#274957', pressed: '#FFFFFF',
-          // pop-overs: the theme, darker - deep blue, white ink, cream secondary, the line colour as accent
-          'pop-bg': '#2F5A6B', 'pop-bg2': '#18323D', 'pop-ink': '#FFFFFF', 'pop-ink2': '#D9C9B6', 'pop-accent': '#68C3D4',
-          'pop-rule': 'rgba(104,195,212,.3)', 'pop-link': '#FFE8D1', 'pop-key': '#244654',
-          'pop-upper': '#FFE8D1', 'pop-lower': '#C08A6C',
-          'wave-lo': '#C08A6C', 'wave-mid': '#68C3D4', 'wave-hi': '#FFE8D1',
-          cap1: '#FFE8D1', cap2: '#826251', capDark: '#826251', insetTex: 'hide' },
-  // GEMINI inverted and drained of colour: the panel goes black, the dark inset sub-panels (DDS,
-  // ENVELOPES) become grey, and the orange accent becomes grey too. Nothing stays white.
-  dark: { base: '#1E1C1A', ink: '#E7E2DA', ink2: '#9C968C', opt: '#9C968C', accent: '#D8D2C8', inset: '#B4AFA6',
-          oink: '#1E1C1A', oink2: '#45413B', rule: '#6E6860', otick: '#4A4640', badge: '#1E1C1A', 'badge-ink': '#E7E2DA',
-          hi: '#2A2724', field: 'rgba(231,226,218,.08)', shade: '.22',
-          sel: '#FFFFFF', osel: '#1E1C1A', link: '#9C968C', pressed: '#E7E2DA',
-          // pop-overs: the same graphite, one step darker, with the cream as accent
-          'pop-bg': '#2A2724', 'pop-bg2': '#161412', 'pop-ink': '#E7E2DA', 'pop-ink2': '#908A80', 'pop-accent': '#D8D2C8',
-          'pop-rule': 'rgba(231,226,218,.16)', 'pop-link': '#B8B2A8', 'pop-key': '#201E1B',
-          'pop-upper': '#D8D2C8', 'pop-lower': '#8E8578',
-          'wave-lo': '#8E8578', 'wave-mid': '#B4AFA6', 'wave-hi': '#F2EEE8',
-          // caps: the cream ones stay cream-ish, the orange ones become a warm taupe, blacks lift a little
-          cap1: '#C9C3B8', cap2: '#8E8578', capDark: '#3A3733', insetTex: 'hide', keys: '#A9A49B' }
-};
-const THEME_KEYS = ['gemini', 'super6', 'dark'];
-const CSS_KEYS = ['base', 'ink', 'ink2', 'opt', 'accent', 'inset', 'oink', 'oink2', 'rule', 'otick', 'badge', 'badge-ink', 'hi', 'field', 'shade', 'sel', 'osel', 'link', 'pressed', 'pop-bg', 'pop-bg2', 'pop-ink', 'pop-ink2', 'pop-accent', 'pop-rule', 'pop-link', 'pop-key', 'pop-upper', 'pop-lower', 'wave-lo', 'wave-mid', 'wave-hi'];
 const themeVars = (t) => CSS_KEYS.filter((k) => THEMES[t][k] != null).map((k) => '--' + k + ':' + THEMES[t][k]).join(';');
 const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
 // piecewise: black -> colour at the asset's mid-tone L -> white (keeps highlights)
@@ -1364,10 +1397,13 @@ const tintFilter = (id, L, hex) => {
     + '<feComponentTransfer><feFuncR type="table" tableValues="' + tv(r) + '"/><feFuncG type="table" tableValues="' + tv(gg) + '"/><feFuncB type="table" tableValues="' + tv(b) + '"/></feComponentTransfer></filter>';
 };
 // linear: the texture's mean lands on the colour, its grain scales with it
+// Each output channel is the texture's luminance x (colour / L), so the photo's own cream tint does not
+// leak into the result (it used to scale R, G and B separately, which warmed every theme's panel).
 const flatFilter = (id, L, hex) => {
+  const row = (c) => [.2126, .7152, .0722].map((w) => (w * c / L).toFixed(4)).join(' ') + ' 0 0';
   const [r, gg, b] = rgb(hex);
   return '<filter id="' + id + '" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="'
-    + (r / L).toFixed(4) + ' 0 0 0 0 0 ' + (gg / L).toFixed(4) + ' 0 0 0 0 0 ' + (b / L).toFixed(4) + ' 0 0 0 0 0 1 0"/></filter>';
+    + row(r) + ' ' + row(gg) + ' ' + row(b) + ' 0 0 0 1 0"/></filter>';
 };
 // mid-tones measured from the assets (median luminance of opaque pixels)
 const TINTED = THEME_KEYS.filter((k) => THEMES[k].cap1);
@@ -1397,7 +1433,7 @@ const html = `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
-  <title>002 by SPKR</title>
+  <title>Somii</title>
   <style>
     /* Bahnschrift is a Windows face; macOS has no condensed face with its metrics, so the
        panel carries one (Roboto Condensed, SIL OFL - ui/FONT-LICENSE.txt). Windows still
@@ -1413,11 +1449,11 @@ ${THEME_KEYS.filter((t) => t !== 'gemini').map((t) => '    body.theme-' + t + ' 
     .link { color: var(--link); border-radius: 3px; transition: color .1s, background .1s; }
     .link:hover { background: rgba(0,0,0,.08); }
     .link.pill { border: 1.5px solid currentColor; border-radius: 20px; box-sizing: border-box; }
-    .link.pill.primary { background: var(--accent); border-color: var(--accent); color: #fff !important; }
+    .link.pill.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink) !important; }
     .link.pill.primary:hover { filter: brightness(1.12); }
     .folder-row:hover { background: rgba(0,0,0,.07); }
     body:not(.arp-free) .arp-free-only, body.arp-free .arp-sync-only { display: none; }
-    .link.pill[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff !important; text-decoration: none; }
+    .link.pill[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink) !important; text-decoration: none; }
     /* pop-over pages: the theme, darker and flat (SPKR_UI_STYLE.md). Solid blocks on hairlines, the
        accent kept for one job - what is on / active - and no gradients, glows or texture. */
     .pop .pop-panel { --base:var(--pop-bg2); --ink:var(--pop-ink); --ink2:var(--pop-ink2); --opt:var(--pop-ink2); --accent:var(--pop-accent); --inset:var(--pop-bg2);
@@ -1472,12 +1508,19 @@ ${THEME_KEYS.filter((t) => t !== 'gemini').map((t) => '    body.theme-' + t + ' 
     .pop .link.pill[aria-pressed="true"] { background:var(--wash); border-color:var(--pop-accent); color:var(--pop-ink) !important; }
     .pop .link.pill.primary { background:var(--pop-accent); border-color:var(--pop-accent); color:var(--pop-bg2) !important; }
     .pop .link:not(.pill):hover { background:none; color:var(--pop-ink) !important; text-decoration:underline; text-underline-offset:5px; text-decoration-thickness:1px; }
-    /* settings: each theme key carries its own three colours */
-    #act-theme-gemini::before, #act-theme-super6::before, #act-theme-dark::before { content:''; display:inline-block; width:12px; height:12px; border-radius:50%;
-      margin-right:44px; vertical-align:-1px; box-shadow:0 0 0 1px rgba(0,0,0,.35); }
-    #act-theme-gemini::before { background:#E7E2DA; box-shadow:16px 0 0 #F65A27,32px 0 0 #424243; }
-    #act-theme-super6::before { background:#568EA3; box-shadow:16px 0 0 #FFE8D1,32px 0 0 #826251; }
-    #act-theme-dark::before { background:#1E1C1A; box-shadow:0 0 0 1px #6E6860,16px 0 0 #B4AFA6,32px 0 0 #D8D2C8; }
+    /* settings: the theme cards - flat, on the pop-over's own colours; the one in use is outlined */
+    .theme-card { position:absolute; box-sizing:border-box; display:grid; grid-template-columns:150px 1fr; grid-template-rows:auto 1fr auto; column-gap:20px;
+      padding:20px; border-radius:8px; background:var(--pop-bg2); box-shadow:inset 0 0 0 1px var(--pop-rule); cursor:pointer;
+      font-family:Bahnschrift,'SPKR Condensed','Arial Narrow',sans-serif; font-stretch:75%; transition:background-color .12s, box-shadow .12s, translate .12s; }
+    .theme-card:hover { background:color-mix(in srgb, var(--pop-bg2), var(--pop-ink) 6%); translate:0 -2px; }
+    .theme-card:focus-visible { outline:2px solid var(--pop-accent); outline-offset:2px; }
+    .theme-card .tc-sw { grid-row:1 / span 3; display:block; }
+    .theme-card .tc-name { font-size:24px; font-weight:700; letter-spacing:.1em; color:var(--pop-ink); line-height:1.1; }
+    .theme-card .tc-blurb { margin-top:8px; font-size:16px; font-weight:600; letter-spacing:.03em; line-height:1.3; color:var(--pop-ink2); }
+    .theme-card .tc-on { font-size:14px; font-weight:700; letter-spacing:.16em; color:var(--pop-accent); visibility:hidden; }
+    .theme-card[aria-pressed="true"] { box-shadow:inset 0 0 0 2px var(--pop-accent); }
+    .theme-card[aria-pressed="true"] .tc-on { visibility:visible; }
+    @media (prefers-reduced-motion: reduce) { .theme-card { transition:none; } .theme-card:hover { translate:none; } }
     /* matrix cells: idle sits back, an amount lights the cell and draws a bar from its centre */
     .mtx-cell { position:absolute; border-radius:4px; background:var(--cell); pointer-events:none; transition:background-color .15s; }
     .mtx-cell::after { content:''; position:absolute; bottom:8px; height:3px; left:50%; width:46%; background:var(--pop-accent); border-radius:2px;
@@ -1676,7 +1719,7 @@ ${body}
   <div style="position:absolute;inset:0;background:url(${A.shading}) no-repeat center/100% 100%;mix-blend-mode:multiply;opacity:var(--shade);pointer-events:none;"></div>
   <div style="position:absolute;inset:0;box-shadow:inset 0 1px 0 rgba(255,255,255,.65),inset 0 -2px 6px rgba(0,0,0,.14);pointer-events:none;"></div>
 </div>
-<script id="fx-spec" type="application/json">${JSON.stringify({ FX, DIVS }).replace(/</g, '\\u003c')}</script>
+<script id="fx-spec" type="application/json">${JSON.stringify({ FX, DIVS, NP, CARVE_BEATS, CARVE_SHAPERS, CARVE_HINTS, FX_MOD_SOURCES, FX_EXT }).replace(/</g, '\\u003c')}</script>
 <script id="parameter-spec" type="application/json">${JSON.stringify(Object.fromEntries(PARAMS)).replace(/</g, '\\u003c')}</script>
 <script type="module" src="geminus.js"></script>
 </body>

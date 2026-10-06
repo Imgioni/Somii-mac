@@ -15,8 +15,8 @@ for (const path of paths) if (path.startsWith('new-') && path.endsWith('.svg')) 
 }
 assert.notEqual(A.btnDark, A.btnDarkOn);
 assert(!generated.includes('clip-path:inset(24%'), 'Old button artifact clipping still present');
-assert(generated.includes('new-small-cream-face.png'));
-assert(generated.includes('new-knob-cream-face.png'));
+assert(generated.includes(A.knob.cream), 'Current knob artwork is referenced');
+assert(generated.includes(A.cap.grey), 'Current fader artwork is referenced');
 const switchStates = ['top', 'mid', 'bot'].map(state => fs.readFileSync(new URL(`new-switch-${state}.png`, root)).toString('base64'));
 assert.equal(new Set(switchStates).size, 3, 'Toggle detents must have distinct artwork');
 assert(generated.includes('data-optbase='), 'Toggle option labels need state binding');
@@ -24,11 +24,11 @@ for (const side of ['left', 'center', 'right']) for (const push of ['', '-push']
   assert(fs.existsSync(new URL(`new-bender-${side}${push}.png`, root)));
 const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map(m => m[1]);
 assert.equal(new Set(ids).size, ids.length, 'Duplicate UI ids');
-console.log(`Verified ${paths.size} sprite references, six bender poses, knob faces and unique UI ids.`);
+console.log(`Verified ${paths.size} sprite references, six bender poses, current control artwork and unique UI ids.`);
 if (process.argv.includes('--binaries')) {
   const release = new URL(`../${process.env.GEMINUS_BUILD_DIR || 'build-vs'}/Geminus_artefacts/Release/`, import.meta.url);
   const current = ['index.html', 'geminus.js', ...fs.readdirSync(root).filter(f => f.startsWith('new-') && /\.(png|svg)$/.test(f))];
-  for (const file of ['VST3/002 by SPKR.vst3/Contents/x86_64-win/002 by SPKR.vst3', 'CLAP/002 by SPKR.clap', 'Standalone/002 by SPKR.exe']) {
+  for (const file of ['VST3/Somii.vst3/Contents/x86_64-win/Somii.vst3', 'CLAP/Somii.clap', 'Standalone/Somii.exe']) {
     const binary = fs.readFileSync(new URL(file, release));
     for (const resource of current)
       assert(binary.includes(fs.readFileSync(new URL(resource, root))), `Stale build: ${file} does not embed current ${resource}`);

@@ -25,6 +25,10 @@ struct Ctx
     const float* v = nullptr;      // real parameter values, fxdefs order (p1 = v[0])
     double bpm = 120.0;
     double fs = 48000.0;
+    double ppq = 0.0;              // host position in quarter notes at the block start (valid while playing)
+    bool playing = false;          // host transport running
+    const float* ext = nullptr;    // the slot's extra values (fxdefs::kExt), e.g. CARVE's waves
+    uint32_t noteOns = 0;          // the layer's note-on count: a change means a new note
 };
 
 // An impulse response shared by every convolver in the rack (message thread only).
@@ -46,7 +50,8 @@ public:
     // message thread, ~30 Hz: for work that must not run on the audio thread (IR reloads)
     virtual void messageTick (const float* /*v*/, const ImpulseResponse& /*ir*/, bool /*irChanged*/) {}
     // live values for the slot's display: meaning depends on the effect (FX_PROMPTS.md)
-    std::array<std::atomic<float>, 8> vis {};
+    static constexpr int kVis = 16;
+    std::array<std::atomic<float>, kVis> vis {};
     int type = 0;   // set by makeUnit; the rack only mixes a unit whose type matches its slot
 };
 
@@ -56,6 +61,11 @@ class Rack
 {
 public:
     static constexpr int kSlots = 3;
+    // FX modulation (right-click any FX control): target 0..kNP-1 = p1..pNP, kNP = DRY / WET; each target
+    // can take every source in fxdefs::kModSourceNames, with an amount of -1..1 of the control's range
+    static constexpr int kTargets = fxdefs::kNP + 1;
+    static constexpr int kLayerSources = 11;   // LayerEngine::kFxSources; the rack adds INPUT and RANDOM
+    struct LayerIn { float src[kLayerSources]; uint32_t noteOns; };
     ~Rack();
 
     void bind (juce::AudioProcessorValueTreeState& state);
@@ -68,7 +78,18 @@ public:
     // message thread: exchange two slots (type, on, mix, layer and every p), keeping their settings
     void swapSlots (int a, int b);
     // audio thread; the four buffers are upper L/R and lower L/R, processed in place
-    void process (float* uL, float* uR, float* lL, float* lR, int n, double bpm) noexcept;
+    // `in` (optional, two entries: upper, lower) are the layers' sources at the end of this block
+    void process (float* uL, float* uR, float* lL, float* lR, int n, double bpm, double ppq = 0.0, bool playing = false, const LayerIn* in = nullptr) noexcept;
+
+    // EXT values and modulation routes: the message thread writes, the audio thread reads. A change made by
+    // the rack itself (state load, swap, type change) bumps getDataVersion() so the editor re-reads them.
+    void setExt (int slot, int i, float v) noexcept;
+    float getExt (int slot, int i) const noexcept;
+    void setMod (int slot, int target, int src, float amount) noexcept;
+    float getMod (int slot, int target, int src) const noexcept;
+    float getModNow (int slot, int target) const noexcept;   // the offset applied now (the layer the display follows)
+    bool hasMods (int slot) const noexcept;
+    int getDataVersion() const noexcept { return dataVersion.load(); }
 
     // impulse response for the convolvers: WAV/AIFF bytes (from a drop), or empty = default hall
     bool loadImpulse (const void* data, size_t size, const juce::String& name);
@@ -107,9 +128,17 @@ private:
         std::array<float, 2> amt { 0.0f, 0.0f };            // smoothed layer amount (audio)
         std::array<float, 2> fade { 1.0f, 1.0f };           // fade-in after a swap (audio)
         float mixSm = 1.0f;
+        std::array<std::atomic<float>, fxdefs::kExt> ext {};
+        bool extSet = false;                                 // message thread: false = give the type's defaults at the next build
+        std::array<std::atomic<float>, kTargets * fxdefs::kModSources> mod {};
+        std::atomic<int> mods { 0 };                         // routes in use (0 = nothing to scan)
+        std::array<std::atomic<float>, kTargets> modNow {};
+        std::array<float, 2> inEnv {};                       // the INPUT source, per layer (audio)
     };
 
-    void processChunk (float* uL, float* uR, float* lL, float* lR, int n, double bpm) noexcept;
+    void processChunk (float* uL, float* uR, float* lL, float* lR, int n, double bpm, double ppq, bool playing) noexcept;
+    void setExtDefaults (Slot& s, int type) noexcept;
+    void countMods (Slot& s) noexcept;
     void buildSlot (Slot& s, int type, bool resetParams);
     void takePending (Slot& s) noexcept;
     void resetToDefaults (Slot& s, int type);
@@ -129,5 +158,15 @@ private:
     juce::MemoryBlock irFile;          // the dropped file's bytes, saved with the state
     bool irChanged = true;
     int irVersion = 0;
+    std::atomic<int> dataVersion { 0 };
+    // modulation sources (audio): each layer's values at the last block end and the next, interpolated per
+    // 64-sample piece; INPUT (per slot) and RANDOM (a new value each beat, glided) are made here
+    std::array<std::array<float, kLayerSources>, 2> srcPrev {}, srcNext {};
+    std::array<std::array<float, fxdefs::kModSources>, 2> srcNow {};
+    std::array<uint32_t, 2> noteOns {};
+    std::array<float, 2> rnd {}, rndTo {};
+    double rndBeat = -1.0, rndClock = 0.0;
+    uint32_t rndState = 0x9E3779B9u;
+    std::array<std::array<float, fxdefs::kExt>, kSlots> extNow {};
 };
 } // namespace fx

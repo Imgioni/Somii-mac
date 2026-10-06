@@ -74,6 +74,13 @@ public:
     int getOversampling() const noexcept { return os; }
     const LayerControl& getControl() const noexcept { return control; }
     const LayerMods& getMods() const noexcept { return mods; }
+    // The FX rack's modulation sources for this layer, as they stand after rendering `n` samples (audio
+    // thread): LFO 1, LFO 2, ENV 1, ENV 2, VELOCITY, NOTE, MOD WHEEL, AFTERTOUCH, EXPRESSION, RIBBON, BENDER
+    // (fxdefs::kModSourceNames order). LFO 1 is a layer-wide twin of the voices' LFO 1 (same rate and
+    // wave), so the effects keep moving after the notes end. getNoteOns() counts the layer's note-ons.
+    static constexpr int kFxSources = 11;
+    void fxSources (float* out, int n) noexcept;
+    uint32_t getNoteOns() const noexcept { return noteOns; }
     // Pitch of the first sounding voice, and voices held on a note (tests / UI).
     float getSoundingPitch() const noexcept;
     int countVoicesOnNote (int note) const noexcept;
@@ -159,6 +166,12 @@ private:
     Chorus chorus;
     StereoDelay delay;
     double bpm = 120.0, beatPos = 0.0;
+    // FX modulation: the LFO 1 twin, the S&H values, the last note played
+    double fxLfo1Phase = 0.0, fxLfo2Last = 0.0;
+    float fxSh1 = 0.0f, fxSh2 = 0.0f;
+    uint32_t fxRng = 0x2545F491u, noteOns = 0;
+    int fxNote = 60;
+    float fxVel = 0.0f;
     bool hostSynced = false;
 };
 
