@@ -367,7 +367,9 @@ int main (int argc, char* argv[])
                     // A state saved while UNDERTOW (2) and HALO (18) were in the FX list: old PARLOUR (22),
                     // HALO and VALVE (5) must load as PARLOUR, an empty slot and VALVE.
                     xml->removeAttribute ("fxTypes");
-                    for (auto [id, old] : { std::pair { "fx1.type", 22 }, { "fx2.type", 18 }, { "fx3.type", 5 } })
+                    // an explicitly typed list: clang (macOS) cannot deduce one from "{ std::pair {...}, {...} }"
+                    static const std::pair<const char*, int> oldTypes[] = { { "fx1.type", 22 }, { "fx2.type", 18 }, { "fx3.type", 5 } };
+                    for (const auto& [id, old] : oldTypes)
                         for (auto* child : xml->getChildIterator())
                             if (child->getStringAttribute ("id") == id) child->setAttribute ("value", old);
                     juce::AudioProcessor::copyXmlToBinary (*xml, data);
