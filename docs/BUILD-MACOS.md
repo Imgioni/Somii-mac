@@ -39,7 +39,6 @@ git clone https://github.com/free-audio/clap-juce-extensions third_party/clap-ju
 git -C third_party/clap-juce-extensions checkout 9fbefae3d9c3d130aafb558c1ec15427a4bd24be
 git -C third_party/clap-juce-extensions submodule update --init --recursive
 bash scripts/build-mac.sh
-ulimit -s 65532
 ./build-mac/SGTests_artefacts/Release/SGTests
 ./build-mac/SGPluginSmoke_artefacts/Release/SGPluginSmoke "build-mac/Geminus_artefacts/Release/VST3/Somii.vst3"
 auval -v aumu Gmns Spkr

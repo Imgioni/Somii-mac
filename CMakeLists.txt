@@ -264,6 +264,8 @@ target_compile_definitions(SGTests PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JU
 if(MSVC)
     target_compile_options(SGTests PRIVATE /utf-8)
     target_link_options(SGTests PRIVATE /STACK:16777216)   # tests build whole PerformanceEngines on the stack
+elseif(APPLE)
+    target_link_options(SGTests PRIVATE -Wl,-stack_size,0x1000000)
 endif()
 if(SG_IPO_OK)
     set_property(TARGET SGTests PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)

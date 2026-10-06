@@ -35,9 +35,7 @@ jobs:
         run: bash scripts/build-mac.sh
 
       - name: DSP tests
-        run: |
-          ulimit -s 65532
-          ./build-mac/SGTests_artefacts/Release/SGTests
+        run: ./build-mac/SGTests_artefacts/Release/SGTests
 
       # Renders audio in memory; no audio device is required.
       - name: Plugin smoke test
