@@ -62,6 +62,24 @@ component "$AU"   "/Library/Audio/Plug-Ins/Components" au
 component "$CLAP" "/Library/Audio/Plug-Ins/CLAP" clap
 component "$APP"  "/Applications" app
 
+# The choice lines are built here, not inside the here-document: macOS's own bash (3.2) misreads a
+# "case ... in vst3)" inside "$( )" - the ")" ends the substitution - and the command fails.
+OUTLINE="" CHOICES=""
+for id in vst3 au clap app; do
+    [ -f "$STAGE/pkgs/$id.pkg" ] || continue
+    case $id in
+        (vst3) t="VST3 plug-in" ;;
+        (au)   t="Audio Unit" ;;
+        (clap) t="CLAP plug-in" ;;
+        (app)  t="Standalone app" ;;
+    esac
+    OUTLINE="$OUTLINE        <line choice=\"$IDENT.$id\"/>
+"
+    CHOICES="$CHOICES    <choice id=\"$IDENT.$id\" title=\"$t\" visible=\"true\"><pkg-ref id=\"$IDENT.$id\"/></choice>
+    <pkg-ref id=\"$IDENT.$id\" version=\"$VERSION\">$id.pkg</pkg-ref>
+"
+done
+
 cat > "$STAGE/distribution.xml" <<XML
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="2">
@@ -72,26 +90,23 @@ cat > "$STAGE/distribution.xml" <<XML
     <license file="LICENSE.txt"/>
     <readme file="README.txt"/>
     <choices-outline>
-$(for p in "$STAGE"/pkgs/*.pkg; do id=$(basename "$p" .pkg); echo "        <line choice=\"$IDENT.$id\"/>"; done)
-    </choices-outline>
-$(for p in "$STAGE"/pkgs/*.pkg; do id=$(basename "$p" .pkg)
-  case $id in vst3) t="VST3 plug-in";; au) t="Audio Unit";; clap) t="CLAP plug-in";; app) t="Standalone app";; *) t=$id;; esac
-  echo "    <choice id=\"$IDENT.$id\" title=\"$t\" visible=\"true\"><pkg-ref id=\"$IDENT.$id\"/></choice>"
-  echo "    <pkg-ref id=\"$IDENT.$id\" version=\"$VERSION\">$id.pkg</pkg-ref>"
-done)
-</installer-gui-script>
+${OUTLINE}    </choices-outline>
+${CHOICES}</installer-gui-script>
 XML
-cp installer/LICENSE.txt "$STAGE/"
-cp installer/mac/README.txt "$STAGE/README.txt"
+# only what the installer shows - pointing it at $STAGE copied every staged bundle in a second time
+RES="$STAGE/resources"
+mkdir -p "$RES"
+cp installer/LICENSE.txt "$RES/"
+cp installer/mac/README.txt "$RES/README.txt"
 
 PKG="$DIST/Somii-$VERSION-macOS-Setup.pkg"
 echo "== installer =="
 if [ -n "${SPKR_INSTALLER_ID:-}" ]; then
     productbuild --distribution "$STAGE/distribution.xml" --package-path "$STAGE/pkgs" \
-                 --resources "$STAGE" --sign "$SPKR_INSTALLER_ID" "$PKG"
+                 --resources "$RES" --sign "$SPKR_INSTALLER_ID" "$PKG"
 else
     productbuild --distribution "$STAGE/distribution.xml" --package-path "$STAGE/pkgs" \
-                 --resources "$STAGE" "$PKG"
+                 --resources "$RES" "$PKG"
 fi
 
 if [ -n "${SPKR_NOTARY_PROFILE:-}" ]; then
