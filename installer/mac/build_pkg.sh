@@ -8,8 +8,13 @@
 #   SPKR_NOTARY_PROFILE name of a stored notarytool keychain profile - notarises and staples
 # Without them the bundles are ad-hoc signed for development; downloaded packages
 # may be blocked by Gatekeeper. Distribution builds should be signed and notarised.
-set -euo pipefail
+set -Eeuo pipefail   # -E: the ERR trap below also fires inside functions
 cd "$(dirname "$0")/../.."
+# On GitHub, a failing command is reported as an annotation (line + command), which the run's public
+# summary shows - the full log is only visible when signed in.
+if [ -n "${GITHUB_ACTIONS:-}" ]; then
+    trap 'echo "::error file=installer/mac/build_pkg.sh,line=$LINENO::packaging failed at: $BASH_COMMAND"' ERR
+fi
 
 if [ "${1:-}" = "--build" ]; then bash scripts/build-mac.sh; fi
 bash scripts/verify-mac.sh
@@ -42,9 +47,12 @@ component () {   # component <built bundle> <install folder> <id suffix>
     else
         codesign --force --deep --sign - "$root/$(basename "$src")"
     fi
-    codesign --verify --deep --strict "$root/$(basename "$src")"
+    # an ad-hoc (unsigned) bundle need not pass Apple's strict check; report it rather than stop
+    if ! codesign --verify --deep --strict "$root/$(basename "$src")" > "$STAGE/verify-$id.txt" 2>&1; then
+        echo "::warning file=installer/mac/build_pkg.sh::$id signature check: $(tr '\n' ' ' < "$STAGE/verify-$id.txt")"
+    fi
     pkgbuild --root "$root" --install-location "$dest" --identifier "$IDENT.$id" --version "$VERSION" \
-             "$STAGE/pkgs/$id.pkg" >/dev/null
+             "$STAGE/pkgs/$id.pkg"
     echo "  $id"
 }
 

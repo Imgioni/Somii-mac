@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write   # publishes the Mac download on the Releases page (main only)
 
 jobs:
   build:
@@ -57,3 +57,17 @@ jobs:
           name: Somii-macOS
           path: dist/*macOS*
           if-no-files-found: error
+
+      # The public download: github.com/<repo>/releases/latest. An artifact needs a GitHub login and
+      # expires; a release file is a plain link anyone can click. Re-running replaces the files.
+      - name: Publish the Mac download
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(sed -n 's/^#define AppVersion  *"\([^"]*\)".*/\1/p' installer/Somii.iss)
+          TAG="v$VERSION"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "Somii $VERSION" \
+                 --notes "Somii $VERSION for macOS (Apple Silicon + Intel). Download Somii-$VERSION-macOS-Setup.pkg, then right-click it and choose Open (it is not notarised yet)."
+          gh release upload "$TAG" dist/*macOS* --repo "$GITHUB_REPOSITORY" --clobber
